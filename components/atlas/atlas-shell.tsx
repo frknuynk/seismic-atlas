@@ -1,0 +1,450 @@
+'use client';
+
+import {
+  Activity,
+  Check,
+  Clock3,
+  Database,
+  Layers3,
+  MapPin,
+  RefreshCw,
+  Search,
+  Share2,
+  SlidersHorizontal,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { EventDetailSheet } from '@/components/atlas/event-detail-sheet';
+import {
+  FilterControls,
+  LayerControls,
+} from '@/components/atlas/explorer-controls';
+import { MapCanvas } from '@/components/map/map-canvas';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
+import { useEventDetail } from '@/hooks/use-event-detail';
+import { useNearestFault } from '@/hooks/use-nearest-fault';
+import { useRecentEvents } from '@/hooks/use-recent-events';
+import {
+  type AtlasFilters,
+  type MapBounds,
+  type MapCamera,
+  type TimeRangeHours,
+} from '@/shared/atlas-state';
+
+function formatEventTime(value: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Istanbul',
+  }).format(new Date(value));
+}
+
+function sourceFreshness(value: string | null | undefined) {
+  if (!value) return 'Not synchronized';
+  const minutes = Math.max(
+    0,
+    Math.round((Date.now() - Date.parse(value)) / 60_000),
+  );
+  if (minutes < 1) return 'Synchronized just now';
+  if (minutes < 60) return `Synchronized ${minutes}m ago`;
+  return `Synchronized ${Math.round(minutes / 60)}h ago`;
+}
+
+function parseNumber(value: string | string[] | undefined) {
+  if (value === undefined || Array.isArray(value)) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function isTimeRange(value: number): value is TimeRangeHours {
+  return value === 24 || value === 72 || value === 168;
+}
+
+type InitialSearch = Record<string, string | string[] | undefined>;
+
+function parseInitialState(search: InitialSearch) {
+  const range = parseNumber(search.range);
+  const minMagnitude = parseNumber(search.minMag);
+  const maxDepth = parseNumber(search.maxDepth);
+  const longitude = parseNumber(search.lng);
+  const latitude = parseNumber(search.lat);
+  const zoom = parseNumber(search.z);
+  const pitch = parseNumber(search.pitch);
+  const bearing = parseNumber(search.bearing);
+  const event = typeof search.event === 'string' ? search.event : null;
+  const faultOpacity = parseNumber(search.faultOpacity);
+
+  return {
+    filters: {
+      rangeHours: range !== null && isTimeRange(range) ? range : 168,
+      minMagnitude:
+        minMagnitude !== null && minMagnitude >= 0 && minMagnitude <= 6
+          ? minMagnitude
+          : 0,
+      maxDepth:
+        maxDepth !== null && maxDepth >= 10 && maxDepth <= 300 ? maxDepth : 300,
+    } satisfies AtlasFilters,
+    event,
+    eventsVisible: search.earthquakes !== 'off',
+    faultsVisible: search.faults !== 'off',
+    faultOpacity:
+      faultOpacity === null ? 0.82 : Math.min(1, Math.max(0.2, faultOpacity)),
+    camera:
+      longitude !== null &&
+      latitude !== null &&
+      zoom !== null &&
+      pitch !== null &&
+      bearing !== null
+        ? { longitude, latitude, zoom, pitch, bearing }
+        : null,
+  };
+}
+
+export function AtlasShell({
+  initialSearch = {},
+}: {
+  initialSearch?: InitialSearch;
+}) {
+  const [initialState] = useState(() => parseInitialState(initialSearch));
+  const [filters, setFilters] = useState<AtlasFilters>(initialState.filters);
+  const [bounds, setBounds] = useState<MapBounds | null>(null);
+  const [camera, setCamera] = useState<MapCamera | null>(null);
+  const [eventsVisible, setEventsVisible] = useState(
+    initialState.eventsVisible,
+  );
+  const [faultsVisible, setFaultsVisible] = useState(
+    initialState.faultsVisible,
+  );
+  const [faultOpacity, setFaultOpacity] = useState(initialState.faultOpacity);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(
+    initialState.event,
+  );
+  const [shareState, setShareState] = useState<'idle' | 'copied' | 'ready'>(
+    'idle',
+  );
+  const { events, health, state, refresh } = useRecentEvents(filters, bounds);
+  const { detail, loading: detailLoading } = useEventDetail(selectedEventId);
+  const selectedEvent = useMemo(
+    () => events.find((event) => event.id === selectedEventId) ?? null,
+    [events, selectedEventId],
+  );
+  const activeEvent = detail ?? selectedEvent;
+  const { fault: nearestFault, loading: nearestFaultLoading } =
+    useNearestFault(activeEvent);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.searchParams.set('range', String(filters.rangeHours));
+    url.searchParams.set('minMag', String(filters.minMagnitude));
+    url.searchParams.set('maxDepth', String(filters.maxDepth));
+    if (selectedEventId) url.searchParams.set('event', selectedEventId);
+    if (!eventsVisible) url.searchParams.set('earthquakes', 'off');
+    if (!faultsVisible) url.searchParams.set('faults', 'off');
+    url.searchParams.set('faultOpacity', faultOpacity.toFixed(2));
+    if (camera) {
+      url.searchParams.set('lng', camera.longitude.toFixed(4));
+      url.searchParams.set('lat', camera.latitude.toFixed(4));
+      url.searchParams.set('z', camera.zoom.toFixed(2));
+      url.searchParams.set('pitch', camera.pitch.toFixed(1));
+      url.searchParams.set('bearing', camera.bearing.toFixed(1));
+    }
+    window.history.replaceState(null, '', url);
+  }, [
+    camera,
+    eventsVisible,
+    faultOpacity,
+    faultsVisible,
+    filters,
+    selectedEventId,
+  ]);
+
+  const handleBoundsChange = useCallback((nextBounds: MapBounds) => {
+    setBounds(nextBounds);
+  }, []);
+  const handleCameraChange = useCallback((nextCamera: MapCamera) => {
+    setCamera(nextCamera);
+  }, []);
+
+  async function shareView() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareState('copied');
+    } catch {
+      setShareState('ready');
+    }
+    window.setTimeout(() => setShareState('idle'), 2_000);
+  }
+
+  return (
+    <main className="flex min-h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid size-9 shrink-0 place-items-center rounded-md border border-primary/30 bg-primary/10 text-primary">
+            <Activity className="size-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold tracking-tight">
+              Seismic Atlas
+            </h1>
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              Türkiye seismic workspace
+            </p>
+          </div>
+        </div>
+
+        <div className="ml-auto hidden max-w-sm flex-1 items-center rounded-md border bg-card/60 px-3 lg:flex">
+          <Search className="size-4 text-muted-foreground" aria-hidden="true" />
+          <input
+            aria-label="Search events or places"
+            disabled
+            placeholder="Search arrives in the next slice"
+            className="h-9 w-full bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          />
+          <Badge
+            variant="outline"
+            className="text-[11px] text-muted-foreground"
+          >
+            Phase 1
+          </Badge>
+        </div>
+
+        <Button type="button" variant="outline" size="sm" onClick={shareView}>
+          {shareState === 'copied' ? (
+            <Check className="size-4" aria-hidden="true" />
+          ) : (
+            <Share2 className="size-4" aria-hidden="true" />
+          )}
+          <span className="hidden sm:inline">
+            {shareState === 'copied'
+              ? 'Copied'
+              : shareState === 'ready'
+                ? 'URL ready'
+                : 'Share view'}
+          </span>
+        </Button>
+      </header>
+
+      <section className="flex min-h-0 flex-1">
+        <aside className="hidden w-80 shrink-0 flex-col border-r bg-sidebar md:flex">
+          <div className="border-b p-4">
+            <FilterControls
+              filters={filters}
+              resultCount={events.length}
+              onChange={setFilters}
+            />
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+            <LayerControls
+              controlId="earthquake-layer-desktop"
+              eventsVisible={eventsVisible}
+              faultsVisible={faultsVisible}
+              faultOpacity={faultOpacity}
+              eventCount={events.length}
+              onEventsVisibleChange={setEventsVisible}
+              onFaultsVisibleChange={setFaultsVisible}
+              onFaultOpacityChange={setFaultOpacity}
+            />
+
+            <section aria-labelledby="recent-title">
+              <div className="mb-2 flex items-center justify-between">
+                <h2
+                  id="recent-title"
+                  className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                >
+                  Latest in view
+                </h2>
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={refresh}
+                  aria-label="Refresh stored earthquake catalog"
+                >
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                </Button>
+              </div>
+              <div className="space-y-1.5">
+                {events.slice(0, 12).map((event) => (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => setSelectedEventId(event.id)}
+                    className="flex w-full items-center gap-3 rounded-md border bg-card/45 p-2.5 text-left transition hover:border-primary/40 hover:bg-card"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-full border border-cyan-200/30 bg-cyan-300/10 font-mono text-sm font-semibold text-cyan-200">
+                      {event.magnitude?.toFixed(1) ?? '—'}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {event.place ?? 'Unknown location'}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        {formatEventTime(event.originTime)} ·{' '}
+                        {event.depthKm === null
+                          ? 'depth unknown'
+                          : `${event.depthKm.toFixed(1)} km deep`}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+                {state === 'ready' && events.length === 0 && (
+                  <p className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
+                    No stored events match this map view and filter combination.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section aria-labelledby="source-title">
+              <h2
+                id="source-title"
+                className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+              >
+                <Database className="size-4" aria-hidden="true" />
+                Source health
+              </h2>
+              <div className="rounded-md border bg-card/55 p-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <span
+                    className={`size-2 rounded-full ${
+                      health?.status === 'ok'
+                        ? 'bg-emerald-400'
+                        : 'bg-slate-500'
+                    }`}
+                  />
+                  {health?.status === 'ok'
+                    ? 'AFAD connected'
+                    : 'AFAD awaiting sync'}
+                </div>
+                <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                  {sourceFreshness(health?.lastSuccessAt)}. Stored results
+                  remain available during upstream interruptions.
+                </p>
+              </div>
+            </section>
+          </div>
+        </aside>
+
+        <div className="relative min-w-0 flex-1">
+          <MapCanvas
+            events={events}
+            eventsVisible={eventsVisible}
+            faultsVisible={faultsVisible}
+            faultOpacity={faultOpacity}
+            initialCamera={initialState.camera}
+            selectedEventId={selectedEventId}
+            nearestFaultId={nearestFault?.id ?? null}
+            onSelectEvent={setSelectedEventId}
+            onViewportChange={handleBoundsChange}
+            onCameraChange={handleCameraChange}
+          />
+
+          <div className="absolute left-3 top-3 flex gap-2 md:hidden">
+            <Sheet>
+              <SheetTrigger render={<Button size="sm" variant="secondary" />}>
+                <SlidersHorizontal className="size-4" aria-hidden="true" />
+                Filters
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[88vw] overflow-y-auto">
+                <SheetHeader>
+                  <SheetTitle>Filter earthquakes</SheetTitle>
+                  <SheetDescription>
+                    Results update from the stored AFAD catalog.
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="p-4">
+                  <FilterControls
+                    filters={filters}
+                    resultCount={events.length}
+                    onChange={setFilters}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <Sheet>
+              <SheetTrigger render={<Button size="sm" variant="secondary" />}>
+                <Layers3 className="size-4" aria-hidden="true" />
+                Layers
+              </SheetTrigger>
+              <SheetContent side="left" className="w-[88vw] overflow-y-auto">
+                <SheetHeader>
+                  <SheetTitle>Map layers</SheetTitle>
+                  <SheetDescription>
+                    Control what is visible over the terrain map.
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="p-4">
+                  <LayerControls
+                    controlId="earthquake-layer-mobile"
+                    eventsVisible={eventsVisible}
+                    faultsVisible={faultsVisible}
+                    faultOpacity={faultOpacity}
+                    eventCount={events.length}
+                    onEventsVisibleChange={setEventsVisible}
+                    onFaultsVisibleChange={setFaultsVisible}
+                    onFaultOpacityChange={setFaultOpacity}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+          </div>
+
+          <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">
+            <div className="flex items-start gap-3">
+              <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                <MapPin className="size-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">
+                    Earthquakes in this view
+                  </h2>
+                  <Badge variant="outline">{events.length} events</Badge>
+                </div>
+                <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                  {state === 'error'
+                    ? 'The stored catalog could not be loaded. The terrain map remains available.'
+                    : 'Move the map or adjust filters to refine the list. Select any marker for full source details.'}
+                </p>
+                <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <Clock3 className="size-3.5" aria-hidden="true" />{' '}
+                    {sourceFreshness(health?.lastSuccessAt)}
+                  </span>
+                  <span className="font-mono">
+                    M {filters.minMagnitude.toFixed(1)}+
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <EventDetailSheet
+        eventId={selectedEventId}
+        summary={selectedEvent}
+        detail={detail}
+        loading={detailLoading}
+        nearbyFault={nearestFault}
+        nearbyFaultLoading={nearestFaultLoading}
+        onOpenChange={(open) => {
+          if (!open) setSelectedEventId(null);
+        }}
+      />
+    </main>
+  );
+}
