@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  eventFocusForViewport,
   isLegacyOverviewCamera,
   turkiyeOverviewForViewport,
 } from '@/lib/map/turkiye-overview';
@@ -47,5 +48,20 @@ describe('Türkiye overview framing', () => {
         bearing: 0,
       }),
     ).toBe(false);
+  });
+
+  it('places a selected event beside the desktop inspector and above overlays', () => {
+    const focus = eventFocusForViewport(1_588, 900, 1_908);
+
+    expect(focus.offset).toEqual([-224, -144]);
+    expect(focus.pitch).toBe(30);
+  });
+
+  it('keeps compact event focus centered horizontally and above the timeline', () => {
+    const focus = eventFocusForViewport(390, 780, 390);
+
+    expect(focus.offset[0]).toBe(0);
+    expect(focus.offset[1]).toBe(-130);
+    expect(focus.pitch).toBe(24);
   });
 });

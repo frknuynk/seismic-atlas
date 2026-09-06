@@ -51,3 +51,24 @@ export function turkiyeOverviewForViewport(width: number, height: number) {
     maxZoom: compact ? 5.25 : 5.7,
   };
 }
+
+export function eventFocusForViewport(
+  mapWidth: number,
+  mapHeight: number,
+  viewportWidth: number,
+) {
+  const sideInspector = viewportWidth >= 640;
+  const inspectorWidth = Math.min(448, viewportWidth * 0.75);
+
+  return {
+    offset: [
+      sideInspector ? -Math.min(inspectorWidth / 2, mapWidth * 0.28) : 0,
+      -clamp(
+        mapHeight * (sideInspector ? 0.16 : 0.2),
+        sideInspector ? 88 : 64,
+        sideInspector ? 150 : 130,
+      ),
+    ] as [number, number],
+    pitch: mapHeight < 620 ? 18 : viewportWidth < 720 ? 24 : 30,
+  };
+}

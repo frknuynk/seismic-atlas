@@ -6,6 +6,7 @@ import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
 import {
+  eventFocusForViewport,
   isLegacyOverviewCamera,
   TURKIYE_BOUNDS,
   turkiyeOverviewForViewport,
@@ -120,6 +121,7 @@ export function MapCanvas({
   const onViewportChangeRef = useRef(onViewportChange);
   const onCameraChangeRef = useRef(onCameraChange);
   const onResetViewRef = useRef(onResetView);
+  const focusBeaconRef = useRef<HTMLDivElement>(null);
   const overviewModeRef = useRef(
     !initialCamera || isLegacyOverviewCamera(initialCamera),
   );
@@ -129,6 +131,8 @@ export function MapCanvas({
   const [terrainReady, setTerrainReady] = useState(false);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const [revealComplete, setRevealComplete] = useState(false);
+  const selectedEvent =
+    events.find((event) => event.id === selectedEventId) ?? null;
 
   useEffect(() => {
     eventsRef.current = events;
@@ -662,20 +666,48 @@ export function MapCanvas({
     ]);
 
     const selected = events.find((event) => event.id === selectedEventId);
-    if (selected) {
-      overviewModeRef.current = false;
-      const container = map.getContainer();
-      const overview = turkiyeOverviewForViewport(
-        container.clientWidth,
-        container.clientHeight,
-      );
-      map.easeTo({
-        center: [selected.longitude, selected.latitude],
-        zoom: Math.max(map.getZoom(), 7),
-        pitch: terrainEnabled ? overview.pitch : 0,
-        duration: 850,
-      });
-    }
+    if (!selected) return;
+
+    overviewModeRef.current = false;
+    const container = map.getContainer();
+    const syncFocusBeacon = () => {
+      const beacon = focusBeaconRef.current;
+      if (!beacon) return;
+      const point = map.project([selected.longitude, selected.latitude]);
+      const containerBounds = container.getBoundingClientRect();
+      const left = containerBounds.left + point.x;
+      const top = containerBounds.top + point.y;
+      beacon.style.left = `${left}px`;
+      beacon.style.top = `${top}px`;
+      beacon.style.opacity =
+        left >= 0 &&
+        left <= window.innerWidth &&
+        top >= 0 &&
+        top <= window.innerHeight
+          ? '1'
+          : '0';
+    };
+    const focus = eventFocusForViewport(
+      container.clientWidth,
+      container.clientHeight,
+      window.innerWidth,
+    );
+
+    map.on('move', syncFocusBeacon);
+    map.on('resize', syncFocusBeacon);
+    syncFocusBeacon();
+    map.easeTo({
+      center: [selected.longitude, selected.latitude],
+      zoom: Math.max(map.getZoom(), 7),
+      pitch: terrainEnabled ? focus.pitch : 0,
+      offset: focus.offset,
+      duration: 850,
+    });
+
+    return () => {
+      map.off('move', syncFocusBeacon);
+      map.off('resize', syncFocusBeacon);
+    };
   }, [events, selectedEventId, terrainEnabled]);
 
   function resetView() {
@@ -730,6 +762,22 @@ export function MapCanvas({
       />
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_52%_42%,transparent_42%,rgba(3,12,18,0.38)_100%),linear-gradient(to_bottom,rgba(3,12,18,0.18),transparent_22%,transparent_72%,rgba(3,12,18,0.28))]" />
+
+      {selectedEvent && (
+        <div
+          ref={focusBeaconRef}
+          data-selected-event-beacon=""
+          className="pointer-events-none fixed z-[60] hidden -translate-x-1/2 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-200 sm:grid"
+          aria-hidden="true"
+        >
+          <span className="absolute size-20 animate-ping rounded-full border border-cyan-200/35 bg-cyan-300/10 motion-reduce:animate-none" />
+          <span className="absolute size-12 rounded-full border border-cyan-100/60 bg-cyan-300/15 shadow-[0_0_32px_rgba(103,232,249,0.85)]" />
+          <span className="relative size-4 rounded-full border-2 border-white bg-cyan-300 shadow-[0_0_0_5px_rgba(8,25,34,0.85),0_0_24px_rgba(255,255,255,0.95)]" />
+          <span className="absolute top-8 rounded-full border border-white/20 bg-[#07141d] px-2 py-1 font-mono text-xs font-semibold text-white shadow-xl">
+            M{selectedEvent.magnitude?.toFixed(1) ?? '—'}
+          </span>
+        </div>
+      )}
 
       <div className="absolute right-3 top-3 flex items-center gap-2 rounded-full border border-white/10 bg-[#07141d]/82 p-1.5 shadow-2xl backdrop-blur-xl">
         <Toggle
