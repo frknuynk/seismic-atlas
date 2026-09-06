@@ -1,12 +1,26 @@
 import type { NormalizedSourceEvent } from '@/shared/schemas';
-import { fetchAfadWindow } from '@/worker/sources/afad';
+import {
+  AfadSourceError,
+  fetchAfadWindowWithDiagnostics,
+  type AfadRejectedRecord,
+} from '@/worker/sources/afad';
+import {
+  planAfadSyncWindow,
+  type AfadIngestionCursor,
+} from '@/worker/ingestion/window';
 
 const SOURCE = 'AFAD';
-const ADAPTER_VERSION = 'afad-v1';
+const ADAPTER_VERSION = 'afad-v2';
+const LEASE_DURATION_MS = 10 * 60_000;
 
 type ExistingEvent = {
   id: string;
   payload_hash: string;
+};
+
+type IngestionStateRow = {
+  last_success_window_end: number | null;
+  last_full_reconcile_at: number | null;
 };
 
 async function payloadHash(event: NormalizedSourceEvent) {
@@ -162,47 +176,160 @@ async function persistEvent(
   return 'updated' as const;
 }
 
-async function recordFailure(db: D1Database, attemptedAt: number) {
+async function acquireLease(db: D1Database, runId: string, acquiredAt: number) {
+  const result = await db
+    .prepare(
+      `INSERT INTO ingestion_leases (source, run_id, acquired_at, expires_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(source) DO UPDATE SET
+        run_id = excluded.run_id,
+        acquired_at = excluded.acquired_at,
+        expires_at = excluded.expires_at
+      WHERE ingestion_leases.expires_at <= excluded.acquired_at`,
+    )
+    .bind(SOURCE, runId, acquiredAt, acquiredAt + LEASE_DURATION_MS)
+    .run();
+
+  return result.meta.changes > 0;
+}
+
+async function releaseLease(db: D1Database, runId: string, releasedAt: number) {
   await db
     .prepare(
-      `INSERT INTO source_health (
-        source, last_attempt_at, consecutive_failures, status
-      ) VALUES (?, ?, 1, 'error')
-      ON CONFLICT(source) DO UPDATE SET
-        last_attempt_at = excluded.last_attempt_at,
-        consecutive_failures = source_health.consecutive_failures + 1,
-        status = 'error'`,
+      `UPDATE ingestion_leases
+      SET expires_at = ?
+      WHERE source = ? AND run_id = ?`,
     )
-    .bind(SOURCE, attemptedAt)
+    .bind(releasedAt, SOURCE, runId)
     .run();
+}
+
+function errorDiagnostic(error: unknown) {
+  if (error instanceof AfadSourceError) {
+    return {
+      code: error.code,
+      message: error.message.slice(0, 500),
+      attempts: error.attempts,
+    };
+  }
+
+  return {
+    code: 'AFAD_SYNC_INTERNAL_ERROR',
+    message: 'The synchronization failed during local processing.',
+    attempts: 0,
+  };
+}
+
+function rejectionStatement(
+  db: D1Database,
+  runId: string,
+  rejection: AfadRejectedRecord,
+  observedAt: number,
+) {
+  return db
+    .prepare(
+      `INSERT INTO ingestion_rejections (
+        run_id, source, source_event_id, reason, observed_at, raw_json
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      runId,
+      SOURCE,
+      rejection.sourceEventId,
+      rejection.reason,
+      observedAt,
+      rejection.rawJson,
+    );
 }
 
 export async function runAfadSync(
   db: D1Database,
-  options: { now?: Date; windowMinutes?: number } = {},
+  options: {
+    now?: Date;
+    windowMinutes?: number;
+    trigger?: 'manual' | 'scheduled';
+  } = {},
 ) {
   const now = options.now ?? new Date();
-  const windowMinutes = options.windowMinutes ?? 7 * 24 * 60;
-  const start = new Date(now.valueOf() - windowMinutes * 60_000);
-  const observedAt = now.valueOf();
+  const startedAt = now.valueOf();
+  const runId = crypto.randomUUID();
+  const trigger = options.trigger ?? 'manual';
+  let leaseAcquired = false;
+  let runRecorded = false;
 
   try {
-    const events = await fetchAfadWindow(start, now);
+    leaseAcquired = await acquireLease(db, runId, startedAt);
+    if (!leaseAcquired) {
+      return {
+        runId,
+        status: 'skipped' as const,
+        reason: 'sync_in_progress' as const,
+      };
+    }
+
+    const state = await db
+      .prepare(
+        `SELECT last_success_window_end, last_full_reconcile_at
+        FROM ingestion_state
+        WHERE source = ?`,
+      )
+      .bind(SOURCE)
+      .first<IngestionStateRow>();
+    const cursor: AfadIngestionCursor = state
+      ? {
+          lastSuccessWindowEnd: state.last_success_window_end,
+          lastFullReconcileAt: state.last_full_reconcile_at,
+        }
+      : null;
+    const window = planAfadSyncWindow({
+      now,
+      trigger,
+      cursor,
+      requestedWindowMinutes: options.windowMinutes,
+    });
+
+    await db
+      .prepare(
+        `INSERT INTO ingestion_runs (
+          id, source, trigger, window_kind, status, window_start, window_end,
+          started_at
+        ) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)`,
+      )
+      .bind(
+        runId,
+        SOURCE,
+        trigger,
+        window.kind,
+        window.start.valueOf(),
+        window.end.valueOf(),
+        startedAt,
+      )
+      .run();
+    runRecorded = true;
+
+    const result = await fetchAfadWindowWithDiagnostics(
+      window.start,
+      window.end,
+    );
     let inserted = 0;
     let updated = 0;
     let unchanged = 0;
 
-    for (const event of events) {
-      const result = await persistEvent(db, event, observedAt);
-      if (result === 'inserted') inserted += 1;
-      if (result === 'updated') updated += 1;
-      if (result === 'unchanged') unchanged += 1;
+    for (const event of result.events) {
+      const persistence = await persistEvent(db, event, startedAt);
+      if (persistence === 'inserted') inserted += 1;
+      if (persistence === 'updated') updated += 1;
+      if (persistence === 'unchanged') unchanged += 1;
     }
 
-    const latestEventTime = events.reduce<number | null>((latest, event) => {
-      const time = Date.parse(event.originTime);
-      return latest === null || time > latest ? time : latest;
-    }, null);
+    const latestEventTime = result.events.reduce<number | null>(
+      (latest, event) => {
+        const time = Date.parse(event.originTime);
+        return latest === null || time > latest ? time : latest;
+      },
+      null,
+    );
+    const completedAt = Date.now();
 
     await db.batch([
       db
@@ -218,22 +345,122 @@ export async function runAfadSync(
             consecutive_failures = 0,
             status = 'ok'`,
         )
-        .bind(SOURCE, observedAt, observedAt, latestEventTime),
+        .bind(SOURCE, startedAt, completedAt, latestEventTime),
       db
         .prepare(
           `INSERT INTO ingestion_state (
-            source, last_success_window_end, adapter_version
-          ) VALUES (?, ?, ?)
+            source, last_success_window_end, last_full_reconcile_at,
+            adapter_version
+          ) VALUES (?, ?, ?, ?)
           ON CONFLICT(source) DO UPDATE SET
             last_success_window_end = excluded.last_success_window_end,
+            last_full_reconcile_at = COALESCE(
+              excluded.last_full_reconcile_at,
+              ingestion_state.last_full_reconcile_at
+            ),
             adapter_version = excluded.adapter_version`,
         )
-        .bind(SOURCE, observedAt, ADAPTER_VERSION),
+        .bind(
+          SOURCE,
+          window.end.valueOf(),
+          window.fullReconcile ? completedAt : null,
+          ADAPTER_VERSION,
+        ),
+      db
+        .prepare(
+          `UPDATE ingestion_runs SET
+            status = 'succeeded', completed_at = ?, attempts = ?, fetched = ?,
+            accepted = ?, rejected = ?, duplicates_dropped = ?, inserted = ?,
+            updated = ?, unchanged = ?
+          WHERE id = ?`,
+        )
+        .bind(
+          completedAt,
+          result.attempts,
+          result.received,
+          result.events.length,
+          result.rejected,
+          result.duplicatesDropped,
+          inserted,
+          updated,
+          unchanged,
+          runId,
+        ),
+      ...result.rejections.map((rejection) =>
+        rejectionStatement(db, runId, rejection, completedAt),
+      ),
     ]);
 
-    return { fetched: events.length, inserted, updated, unchanged };
+    return {
+      runId,
+      status: 'succeeded' as const,
+      windowKind: window.kind,
+      windowStart: window.start.toISOString(),
+      windowEnd: window.end.toISOString(),
+      attempts: result.attempts,
+      fetched: result.received,
+      accepted: result.events.length,
+      rejected: result.rejected,
+      duplicatesDropped: result.duplicatesDropped,
+      inserted,
+      updated,
+      unchanged,
+      durationMs: Math.max(0, completedAt - startedAt),
+    };
   } catch (error) {
-    await recordFailure(db, observedAt);
+    const diagnostic = errorDiagnostic(error);
+    const completedAt = Date.now();
+    try {
+      const statements = [
+        db
+          .prepare(
+            `INSERT INTO source_health (
+              source, last_attempt_at, consecutive_failures, status
+            ) VALUES (?, ?, 1, 'error')
+            ON CONFLICT(source) DO UPDATE SET
+              last_attempt_at = excluded.last_attempt_at,
+              consecutive_failures = source_health.consecutive_failures + 1,
+              status = 'error'`,
+          )
+          .bind(SOURCE, completedAt),
+      ];
+      if (runRecorded) {
+        statements.push(
+          db
+            .prepare(
+              `UPDATE ingestion_runs SET
+                status = 'failed', completed_at = ?, attempts = ?,
+                error_code = ?, error_message = ?
+              WHERE id = ?`,
+            )
+            .bind(
+              completedAt,
+              diagnostic.attempts,
+              diagnostic.code,
+              diagnostic.message,
+              runId,
+            ),
+        );
+        if (error instanceof AfadSourceError) {
+          statements.push(
+            ...error.rejections.map((rejection) =>
+              rejectionStatement(db, runId, rejection, completedAt),
+            ),
+          );
+        }
+      }
+      await db.batch(statements);
+    } catch (auditError) {
+      console.error('AFAD sync failure could not be recorded', auditError);
+    }
     throw error;
+  } finally {
+    if (leaseAcquired) {
+      try {
+        await releaseLease(db, runId, Date.now());
+      } catch (error) {
+        console.error('AFAD sync lease could not be released', error);
+      }
+    }
   }
 }

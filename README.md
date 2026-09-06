@@ -2,6 +2,8 @@
 
 A map-first, provenance-aware seismic exploration workspace for Türkiye.
 
+Current development version: **0.4.0-alpha.0**.
+
 Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
 schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
 bounded AFAD ingestion, revision-aware storage, catalog APIs, source health, and
@@ -10,6 +12,16 @@ active-fault segments from the open GEM Global Active Faults Database and shows
 the nearest mapped segment as context for a selected earthquake. A synchronized
 timeline filters the map by time bucket, and current-view search locates stored
 events by place, magnitude, or AFAD event ID.
+
+The first v0.4 reliability slice adds bounded retry and timeout handling for
+AFAD, per-record quarantine for malformed upstream rows, deterministic
+within-batch deduplication, a D1-backed synchronization lease, and durable run
+diagnostics. Concurrent triggers no longer perform overlapping ingestion work,
+and the source-health response reports the latest run counters and failure code.
+Scheduled runs resume from the last successful cursor with overlap, recover gaps
+up to 24 hours, and perform a seven-day reconciliation every day to capture late
+AFAD revisions. Up to 25 malformed source records per run are preserved in a
+separate quarantine table for diagnosis and never enter the earthquake catalog.
 
 ## Requirements
 
@@ -35,8 +47,13 @@ curl -X POST http://localhost:3000/api/v1/internal/sync/afad
 ```
 
 The production route requires `AFAD_SYNC_TOKEN`. Scheduled ingestion uses an
-overlapping 15-minute window and never removes previously stored events when the
-upstream service is unavailable.
+overlapping cursor window of at least 15 minutes and never removes previously
+stored events when the upstream service is unavailable.
+
+Successful synchronization responses include a run ID, attempt count, accepted
+and rejected row counts, duplicate count, insert/update totals, and duration.
+When another synchronization already owns the AFAD lease, the second trigger is
+reported as `skipped` with reason `sync_in_progress`.
 
 ## Validation
 

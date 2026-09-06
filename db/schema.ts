@@ -33,10 +33,7 @@ export const sourceEvents = sqliteTable(
     payloadHash: text('payload_hash').notNull(),
   },
   (table) => [
-    uniqueIndex('uq_events_source_event').on(
-      table.source,
-      table.sourceEventId,
-    ),
+    uniqueIndex('uq_events_source_event').on(table.source, table.sourceEventId),
     index('idx_events_time').on(table.originTime),
     index('idx_events_source_time').on(table.source, table.originTime),
     index('idx_events_mag_time').on(table.magnitude, table.originTime),
@@ -92,3 +89,57 @@ export const ingestionState = sqliteTable('ingestion_state', {
   lastFullReconcileAt: integer('last_full_reconcile_at'),
   adapterVersion: text('adapter_version').notNull(),
 });
+
+export const ingestionRuns = sqliteTable(
+  'ingestion_runs',
+  {
+    id: text('id').primaryKey(),
+    source: text('source').notNull(),
+    trigger: text('trigger').notNull(),
+    windowKind: text('window_kind').notNull().default('manual'),
+    status: text('status').notNull(),
+    windowStart: integer('window_start').notNull(),
+    windowEnd: integer('window_end').notNull(),
+    startedAt: integer('started_at').notNull(),
+    completedAt: integer('completed_at'),
+    attempts: integer('attempts').notNull().default(0),
+    fetched: integer('fetched').notNull().default(0),
+    accepted: integer('accepted').notNull().default(0),
+    rejected: integer('rejected').notNull().default(0),
+    duplicatesDropped: integer('duplicates_dropped').notNull().default(0),
+    inserted: integer('inserted').notNull().default(0),
+    updated: integer('updated').notNull().default(0),
+    unchanged: integer('unchanged').notNull().default(0),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+  },
+  (table) => [
+    index('idx_ingestion_runs_source_started').on(
+      table.source,
+      table.startedAt,
+    ),
+  ],
+);
+
+export const ingestionLeases = sqliteTable('ingestion_leases', {
+  source: text('source').primaryKey(),
+  runId: text('run_id').notNull(),
+  acquiredAt: integer('acquired_at').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+});
+
+export const ingestionRejections = sqliteTable(
+  'ingestion_rejections',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    runId: text('run_id')
+      .notNull()
+      .references(() => ingestionRuns.id),
+    source: text('source').notNull(),
+    sourceEventId: text('source_event_id'),
+    reason: text('reason').notNull(),
+    observedAt: integer('observed_at').notNull(),
+    rawJson: text('raw_json').notNull(),
+  },
+  (table) => [index('idx_ingestion_rejections_run').on(table.runId)],
+);

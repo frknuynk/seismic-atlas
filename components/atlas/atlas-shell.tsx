@@ -35,6 +35,7 @@ import { useNearestFault } from '@/hooks/use-nearest-fault';
 import { useRecentEvents } from '@/hooks/use-recent-events';
 import { eventInTimelineWindow } from '@/lib/timeline';
 import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
+import type { SourceHealthResponse } from '@/shared/schemas';
 import {
   type AtlasFilters,
   type MapBounds,
@@ -62,6 +63,32 @@ function sourceFreshness(value: string | null | undefined) {
   if (minutes < 1) return 'Synchronized just now';
   if (minutes < 60) return `Synchronized ${minutes}m ago`;
   return `Synchronized ${Math.round(minutes / 60)}h ago`;
+}
+
+function sourceStatusLabel(status: string | null | undefined) {
+  if (status === 'ok') return 'AFAD synchronized';
+  if (status === 'delayed') return 'AFAD synchronization delayed';
+  if (status === 'error') return 'AFAD synchronization failing';
+  return 'AFAD awaiting first sync';
+}
+
+function sourceStatusColor(status: string | null | undefined) {
+  if (status === 'ok') return 'bg-emerald-400';
+  if (status === 'delayed') return 'bg-amber-400';
+  if (status === 'error') return 'bg-rose-400';
+  return 'bg-slate-500';
+}
+
+function syncRunSummary(
+  run: NonNullable<SourceHealthResponse['AFAD']['lastRun']>,
+) {
+  if (run.status === 'running') return 'Synchronization is currently running.';
+  if (run.status === 'failed') {
+    return `Last run failed after ${run.attempts} attempt${run.attempts === 1 ? '' : 's'}${run.errorCode ? ` · ${run.errorCode}` : ''}.`;
+  }
+  const changed = run.inserted + run.updated;
+  const qualityNotes = run.rejected + run.duplicatesDropped;
+  return `${run.accepted.toLocaleString()} accepted · ${changed.toLocaleString()} changed${qualityNotes > 0 ? ` · ${qualityNotes.toLocaleString()} quarantined/duplicate` : ''}.`;
 }
 
 function parseNumber(value: string | string[] | undefined) {
@@ -359,20 +386,19 @@ export function AtlasShell({
               <div className="rounded-md border bg-card/55 p-3">
                 <div className="flex items-center gap-2 text-sm">
                   <span
-                    className={`size-2 rounded-full ${
-                      health?.status === 'ok'
-                        ? 'bg-emerald-400'
-                        : 'bg-slate-500'
-                    }`}
+                    className={`size-2 rounded-full ${sourceStatusColor(health?.status)}`}
                   />
-                  {health?.status === 'ok'
-                    ? 'AFAD connected'
-                    : 'AFAD awaiting sync'}
+                  {sourceStatusLabel(health?.status)}
                 </div>
                 <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
                   {sourceFreshness(health?.lastSuccessAt)}. Stored results
                   remain available during upstream interruptions.
                 </p>
+                {health?.lastRun && (
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {syncRunSummary(health.lastRun)}
+                  </p>
+                )}
               </div>
             </section>
           </div>

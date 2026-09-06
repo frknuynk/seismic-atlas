@@ -1,0 +1,1 @@
+ALTER TABLE `ingestion_runs` ADD `window_kind` text DEFAULT 'manual' NOT NULL;

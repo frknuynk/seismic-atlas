@@ -11,7 +11,7 @@ const worker = {
     env: Cloudflare.Env,
     context: ExecutionContext,
   ) {
-    context.waitUntil(runAfadSync(env.DB, { windowMinutes: 15 }));
+    context.waitUntil(runAfadSync(env.DB, { trigger: 'scheduled' }));
   },
 };
 

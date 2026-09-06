@@ -29,6 +29,26 @@ type HealthRow = {
   consecutive_failures: number;
 };
 
+type IngestionRunRow = {
+  id: string;
+  trigger: 'manual' | 'scheduled';
+  window_kind: 'manual' | 'bootstrap' | 'incremental' | 'reconcile';
+  window_start: number;
+  window_end: number;
+  status: 'running' | 'succeeded' | 'failed';
+  started_at: number;
+  completed_at: number | null;
+  attempts: number;
+  fetched: number;
+  accepted: number;
+  rejected: number;
+  duplicates_dropped: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  error_code: string | null;
+};
+
 type EventDetailRow = EventRow & {
   source_status: string | null;
   source_updated_at: number | null;
@@ -130,15 +150,29 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
 export async function getSourceHealth(
   db: D1Database,
 ): Promise<SourceHealthResponse> {
-  const row = await db
-    .prepare(
-      `SELECT source, status, last_attempt_at, last_success_at,
-        latest_event_time, consecutive_failures
-      FROM source_health
-      WHERE source = ?`,
-    )
-    .bind('AFAD')
-    .first<HealthRow>();
+  const [row, lastRun] = await Promise.all([
+    db
+      .prepare(
+        `SELECT source, status, last_attempt_at, last_success_at,
+          latest_event_time, consecutive_failures
+        FROM source_health
+        WHERE source = ?`,
+      )
+      .bind('AFAD')
+      .first<HealthRow>(),
+    db
+      .prepare(
+        `SELECT id, trigger, window_kind, window_start, window_end, status,
+          started_at, completed_at, attempts, fetched, accepted, rejected,
+          duplicates_dropped, inserted, updated, unchanged, error_code
+        FROM ingestion_runs
+        WHERE source = ?
+        ORDER BY started_at DESC
+        LIMIT 1`,
+      )
+      .bind('AFAD')
+      .first<IngestionRunRow>(),
+  ]);
 
   if (!row) {
     return {
@@ -148,17 +182,50 @@ export async function getSourceHealth(
         lastSuccessAt: null,
         latestEventTime: null,
         consecutiveFailures: 0,
+        lastRun: null,
       },
     };
   }
 
+  const status =
+    row.status === 'ok' &&
+    row.last_success_at !== null &&
+    Date.now() - row.last_success_at > 5 * 60_000
+      ? 'delayed'
+      : row.status;
+
   return {
     AFAD: {
-      status: row.status,
+      status,
       lastAttemptAt: iso(row.last_attempt_at),
       lastSuccessAt: iso(row.last_success_at),
       latestEventTime: iso(row.latest_event_time),
       consecutiveFailures: row.consecutive_failures,
+      lastRun: lastRun
+        ? {
+            id: lastRun.id,
+            trigger: lastRun.trigger,
+            windowKind: lastRun.window_kind,
+            windowStart: new Date(lastRun.window_start).toISOString(),
+            windowEnd: new Date(lastRun.window_end).toISOString(),
+            status: lastRun.status,
+            startedAt: new Date(lastRun.started_at).toISOString(),
+            completedAt: iso(lastRun.completed_at),
+            durationMs:
+              lastRun.completed_at === null
+                ? null
+                : Math.max(0, lastRun.completed_at - lastRun.started_at),
+            attempts: lastRun.attempts,
+            fetched: lastRun.fetched,
+            accepted: lastRun.accepted,
+            rejected: lastRun.rejected,
+            duplicatesDropped: lastRun.duplicates_dropped,
+            inserted: lastRun.inserted,
+            updated: lastRun.updated,
+            unchanged: lastRun.unchanged,
+            errorCode: lastRun.error_code,
+          }
+        : null,
     },
   };
 }

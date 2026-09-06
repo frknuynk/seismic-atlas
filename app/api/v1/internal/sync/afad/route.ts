@@ -14,21 +14,27 @@ function isAuthorized(request: Request) {
 export async function POST(request: Request) {
   if (!isAuthorized(request)) {
     return Response.json(
-      { error: { code: 'UNAUTHORIZED', message: 'Valid sync credentials required.' } },
+      {
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Valid sync credentials required.',
+        },
+      },
       { status: 401 },
     );
   }
 
   try {
     const result = await runAfadSync(getD1());
-    return Response.json({ source: 'AFAD', status: 'ok', ...result });
+    return Response.json({ source: 'AFAD', ...result });
   } catch (error) {
     console.error('AFAD synchronization failed', error);
     return Response.json(
       {
         error: {
           code: 'AFAD_SYNC_FAILED',
-          message: 'AFAD synchronization failed; stored catalog data was preserved.',
+          message:
+            'AFAD synchronization failed; stored catalog data was preserved.',
         },
       },
       { status: 502 },

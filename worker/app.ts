@@ -11,7 +11,8 @@ api.get('/api/v1/health', (context) => {
   const payload = ServiceHealthSchema.parse({
     service: 'seismic-atlas-api',
     status: 'ok',
-    phase: 0,
+    phase: 1,
+    version: '0.4.0-alpha.0',
     databaseBinding: 'DB',
     timestamp: new Date().toISOString(),
   });

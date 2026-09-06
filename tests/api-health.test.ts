@@ -12,7 +12,8 @@ describe('GET /api/v1/health', () => {
     expect(ServiceHealthSchema.parse(payload)).toMatchObject({
       service: 'seismic-atlas-api',
       status: 'ok',
-      phase: 0,
+      phase: 1,
+      version: '0.4.0-alpha.0',
       databaseBinding: 'DB',
     });
   });

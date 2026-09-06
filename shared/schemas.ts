@@ -99,6 +99,28 @@ export const SourceHealthEntrySchema = z.object({
   lastSuccessAt: z.iso.datetime({ offset: true }).nullable(),
   latestEventTime: z.iso.datetime({ offset: true }).nullable(),
   consecutiveFailures: z.number().int().nonnegative(),
+  lastRun: z
+    .object({
+      id: z.string().min(1),
+      trigger: z.enum(['manual', 'scheduled']),
+      windowKind: z.enum(['manual', 'bootstrap', 'incremental', 'reconcile']),
+      windowStart: z.iso.datetime({ offset: true }),
+      windowEnd: z.iso.datetime({ offset: true }),
+      status: z.enum(['running', 'succeeded', 'failed']),
+      startedAt: z.iso.datetime({ offset: true }),
+      completedAt: z.iso.datetime({ offset: true }).nullable(),
+      durationMs: z.number().int().nonnegative().nullable(),
+      attempts: z.number().int().nonnegative(),
+      fetched: z.number().int().nonnegative(),
+      accepted: z.number().int().nonnegative(),
+      rejected: z.number().int().nonnegative(),
+      duplicatesDropped: z.number().int().nonnegative(),
+      inserted: z.number().int().nonnegative(),
+      updated: z.number().int().nonnegative(),
+      unchanged: z.number().int().nonnegative(),
+      errorCode: z.string().nullable(),
+    })
+    .nullable(),
 });
 
 export const SourceHealthResponseSchema = z.object({
@@ -129,14 +151,13 @@ export const EventDetailSchema = CatalogEventSchema.extend({
 export const ServiceHealthSchema = z.object({
   service: z.literal('seismic-atlas-api'),
   status: z.literal('ok'),
-  phase: z.literal(0),
+  phase: z.literal(1),
+  version: z.literal('0.4.0-alpha.0'),
   databaseBinding: z.literal('DB'),
   timestamp: z.iso.datetime({ offset: true }),
 });
 
-export type NormalizedSourceEvent = z.infer<
-  typeof NormalizedSourceEventSchema
->;
+export type NormalizedSourceEvent = z.infer<typeof NormalizedSourceEventSchema>;
 export type EventQuery = z.infer<typeof EventQuerySchema>;
 export type CatalogEvent = z.infer<typeof CatalogEventSchema>;
 export type EventsResponse = z.infer<typeof EventsResponseSchema>;
