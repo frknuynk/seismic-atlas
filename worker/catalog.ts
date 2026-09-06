@@ -39,6 +39,7 @@ type IngestionRunRow = {
   started_at: number;
   completed_at: number | null;
   attempts: number;
+  splits: number;
   fetched: number;
   accepted: number;
   rejected: number;
@@ -163,7 +164,7 @@ export async function getSourceHealth(
     db
       .prepare(
         `SELECT id, trigger, window_kind, window_start, window_end, status,
-          started_at, completed_at, attempts, fetched, accepted, rejected,
+          started_at, completed_at, attempts, splits, fetched, accepted, rejected,
           duplicates_dropped, inserted, updated, unchanged, error_code
         FROM ingestion_runs
         WHERE source = ?
@@ -216,6 +217,7 @@ export async function getSourceHealth(
                 ? null
                 : Math.max(0, lastRun.completed_at - lastRun.started_at),
             attempts: lastRun.attempts,
+            splits: lastRun.splits,
             fetched: lastRun.fetched,
             accepted: lastRun.accepted,
             rejected: lastRun.rejected,

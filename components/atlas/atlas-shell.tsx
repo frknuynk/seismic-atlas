@@ -88,7 +88,11 @@ function syncRunSummary(
   }
   const changed = run.inserted + run.updated;
   const qualityNotes = run.rejected + run.duplicatesDropped;
-  return `${run.accepted.toLocaleString()} accepted · ${changed.toLocaleString()} changed${qualityNotes > 0 ? ` · ${qualityNotes.toLocaleString()} quarantined/duplicate` : ''}.`;
+  const saturationRecovery =
+    run.splits > 0
+      ? ` · ${run.splits.toLocaleString()} saturation split${run.splits === 1 ? '' : 's'}`
+      : '';
+  return `${run.accepted.toLocaleString()} accepted · ${changed.toLocaleString()} changed${qualityNotes > 0 ? ` · ${qualityNotes.toLocaleString()} quarantined/duplicate` : ''}${saturationRecovery}.`;
 }
 
 function parseNumber(value: string | string[] | undefined) {

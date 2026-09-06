@@ -210,6 +210,7 @@ function errorDiagnostic(error: unknown) {
       code: error.code,
       message: error.message.slice(0, 500),
       attempts: error.attempts,
+      splits: error.splits,
     };
   }
 
@@ -217,6 +218,7 @@ function errorDiagnostic(error: unknown) {
     code: 'AFAD_SYNC_INTERNAL_ERROR',
     message: 'The synchronization failed during local processing.',
     attempts: 0,
+    splits: 0,
   };
 }
 
@@ -369,14 +371,15 @@ export async function runAfadSync(
       db
         .prepare(
           `UPDATE ingestion_runs SET
-            status = 'succeeded', completed_at = ?, attempts = ?, fetched = ?,
-            accepted = ?, rejected = ?, duplicates_dropped = ?, inserted = ?,
-            updated = ?, unchanged = ?
+            status = 'succeeded', completed_at = ?, attempts = ?, splits = ?,
+            fetched = ?, accepted = ?, rejected = ?, duplicates_dropped = ?,
+            inserted = ?, updated = ?, unchanged = ?
           WHERE id = ?`,
         )
         .bind(
           completedAt,
           result.attempts,
+          result.splits,
           result.received,
           result.events.length,
           result.rejected,
@@ -398,6 +401,7 @@ export async function runAfadSync(
       windowStart: window.start.toISOString(),
       windowEnd: window.end.toISOString(),
       attempts: result.attempts,
+      splits: result.splits,
       fetched: result.received,
       accepted: result.events.length,
       rejected: result.rejected,
@@ -429,13 +433,14 @@ export async function runAfadSync(
           db
             .prepare(
               `UPDATE ingestion_runs SET
-                status = 'failed', completed_at = ?, attempts = ?,
+                status = 'failed', completed_at = ?, attempts = ?, splits = ?,
                 error_code = ?, error_message = ?
               WHERE id = ?`,
             )
             .bind(
               completedAt,
               diagnostic.attempts,
+              diagnostic.splits,
               diagnostic.code,
               diagnostic.message,
               runId,

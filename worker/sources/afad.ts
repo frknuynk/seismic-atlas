@@ -5,6 +5,8 @@ import {
 } from '@/shared/schemas';
 
 const AFAD_API_URL = 'https://deprem.afad.gov.tr/apiv2/event/filter';
+const AFAD_RESPONSE_LIMIT = 2_500;
+const MAX_WINDOW_SPLITS = 63;
 
 const AfadEventSchema = z.object({
   eventID: z.union([z.string(), z.number()]).transform(String),
@@ -25,6 +27,7 @@ export type AfadWindowResult = {
   events: NormalizedSourceEvent[];
   rejections: AfadRejectedRecord[];
   attempts: number;
+  splits: number;
   received: number;
   rejected: number;
   duplicatesDropped: number;
@@ -38,8 +41,20 @@ export type AfadRejectedRecord = {
 
 type AfadFetchOptions = {
   maxAttempts?: number;
+  maxSplits?: number;
+  responseLimit?: number;
   timeoutMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
+};
+
+type FetchMetrics = {
+  attempts: number;
+  splits: number;
+};
+
+type PendingWindow = {
+  start: Date;
+  end: Date;
 };
 
 export class AfadSourceError extends Error {
@@ -48,6 +63,7 @@ export class AfadSourceError extends Error {
     message: string,
     readonly attempts: number,
     readonly rejections: AfadRejectedRecord[] = [],
+    readonly splits = 0,
   ) {
     super(message);
     this.name = 'AfadSourceError';
@@ -124,12 +140,7 @@ function rejectedRecord(rawEvent: unknown, error: unknown): AfadRejectedRecord {
   };
 }
 
-export async function fetchAfadWindowWithDiagnostics(
-  start: Date,
-  end: Date,
-  fetcher: typeof fetch = fetch,
-  options: AfadFetchOptions = {},
-): Promise<AfadWindowResult> {
+function afadWindowUrl(start: Date, end: Date, responseLimit: number) {
   const url = new URL(AFAD_API_URL);
   url.searchParams.set('start', toAfadTime(start));
   url.searchParams.set('end', toAfadTime(end));
@@ -138,57 +149,72 @@ export async function fetchAfadWindowWithDiagnostics(
   url.searchParams.set('minlon', '23');
   url.searchParams.set('maxlon', '46');
   url.searchParams.set('orderby', 'timedesc');
-  url.searchParams.set('limit', '2500');
+  url.searchParams.set('limit', String(responseLimit));
   url.searchParams.set('format', 'json');
+  return url;
+}
 
-  const maxAttempts = Math.min(5, Math.max(1, options.maxAttempts ?? 3));
-  const timeoutMs = Math.max(1_000, options.timeoutMs ?? 10_000);
-  const sleep =
-    options.sleep ??
-    ((delayMs: number) =>
-      new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+async function fetchRawAfadWindow(
+  window: PendingWindow,
+  fetcher: typeof fetch,
+  options: Required<
+    Pick<AfadFetchOptions, 'maxAttempts' | 'responseLimit' | 'timeoutMs'>
+  > & { sleep: NonNullable<AfadFetchOptions['sleep']> },
+  metrics: FetchMetrics,
+) {
+  const url = afadWindowUrl(window.start, window.end, options.responseLimit);
   let response: Response | null = null;
-  let attempts = 0;
+  let windowAttempts = 0;
 
-  while (attempts < maxAttempts) {
-    attempts += 1;
+  while (windowAttempts < options.maxAttempts) {
+    windowAttempts += 1;
+    metrics.attempts += 1;
     try {
       response = await fetcher(url, {
         headers: { Accept: 'application/json' },
         redirect: 'follow',
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(options.timeoutMs),
       });
     } catch (error) {
-      if (attempts >= maxAttempts) {
+      if (windowAttempts >= options.maxAttempts) {
         const timedOut = (error as Error).name === 'TimeoutError';
         throw new AfadSourceError(
           timedOut ? 'AFAD_TIMEOUT' : 'AFAD_NETWORK_ERROR',
           timedOut
-            ? `AFAD did not respond within ${timeoutMs}ms.`
+            ? `AFAD did not respond within ${options.timeoutMs}ms.`
             : 'AFAD could not be reached.',
-          attempts,
+          metrics.attempts,
+          [],
+          metrics.splits,
         );
       }
-      await sleep(250 * 2 ** (attempts - 1));
+      await options.sleep(250 * 2 ** (windowAttempts - 1));
       continue;
     }
 
     if (response.ok) break;
-    if (!retryableStatus(response.status) || attempts >= maxAttempts) {
+    if (
+      !retryableStatus(response.status) ||
+      windowAttempts >= options.maxAttempts
+    ) {
       throw new AfadSourceError(
         `AFAD_HTTP_${response.status}`,
         `AFAD returned HTTP ${response.status}.`,
-        attempts,
+        metrics.attempts,
+        [],
+        metrics.splits,
       );
     }
-    await sleep(250 * 2 ** (attempts - 1));
+    await options.sleep(250 * 2 ** (windowAttempts - 1));
   }
 
   if (!response) {
     throw new AfadSourceError(
       'AFAD_NETWORK_ERROR',
       'AFAD could not be reached.',
-      attempts,
+      metrics.attempts,
+      [],
+      metrics.splits,
     );
   }
 
@@ -199,7 +225,9 @@ export async function fetchAfadWindowWithDiagnostics(
     throw new AfadSourceError(
       'AFAD_INVALID_JSON',
       'AFAD returned invalid JSON.',
-      attempts,
+      metrics.attempts,
+      [],
+      metrics.splits,
     );
   }
 
@@ -208,49 +236,138 @@ export async function fetchAfadWindowWithDiagnostics(
     throw new AfadSourceError(
       'AFAD_INVALID_PAYLOAD',
       'AFAD returned an unexpected payload shape.',
-      attempts,
+      metrics.attempts,
+      [],
+      metrics.splits,
     );
   }
 
+  return rawEvents.data;
+}
+
+export async function fetchAfadWindowWithDiagnostics(
+  start: Date,
+  end: Date,
+  fetcher: typeof fetch = fetch,
+  options: AfadFetchOptions = {},
+): Promise<AfadWindowResult> {
+  if (
+    !Number.isFinite(start.valueOf()) ||
+    !Number.isFinite(end.valueOf()) ||
+    end.valueOf() <= start.valueOf()
+  ) {
+    throw new AfadSourceError(
+      'AFAD_INVALID_WINDOW',
+      'AFAD synchronization requires a valid ascending time window.',
+      0,
+    );
+  }
+
+  const fetchOptions = {
+    maxAttempts: Math.min(5, Math.max(1, options.maxAttempts ?? 3)),
+    maxSplits: Math.min(
+      MAX_WINDOW_SPLITS,
+      Math.max(0, options.maxSplits ?? MAX_WINDOW_SPLITS),
+    ),
+    responseLimit: Math.min(
+      AFAD_RESPONSE_LIMIT,
+      Math.max(1, options.responseLimit ?? AFAD_RESPONSE_LIMIT),
+    ),
+    timeoutMs: Math.max(1_000, options.timeoutMs ?? 10_000),
+    sleep:
+      options.sleep ??
+      ((delayMs: number) =>
+        new Promise<void>((resolve) => setTimeout(resolve, delayMs))),
+  };
+  const metrics: FetchMetrics = { attempts: 0, splits: 0 };
+  const pendingWindows: PendingWindow[] = [{ start, end }];
   const eventsById = new Map<string, NormalizedSourceEvent>();
   const rejections: AfadRejectedRecord[] = [];
+  let received = 0;
   let rejected = 0;
   let duplicatesDropped = 0;
 
-  for (const rawEvent of rawEvents.data) {
-    try {
-      const event = normalizeAfadEvent(rawEvent);
-      const existing = eventsById.get(event.sourceEventId);
-      if (existing) {
-        duplicatesDropped += 1;
-        if (sourceUpdateTime(event) >= sourceUpdateTime(existing)) {
+  while (pendingWindows.length > 0) {
+    const window = pendingWindows.pop();
+    if (!window) break;
+    const rawEvents = await fetchRawAfadWindow(
+      window,
+      fetcher,
+      fetchOptions,
+      metrics,
+    );
+
+    if (rawEvents.length >= fetchOptions.responseLimit) {
+      const startSecond = Math.floor(window.start.valueOf() / 1_000);
+      const endSecond = Math.floor(window.end.valueOf() / 1_000);
+      if (endSecond - startSecond <= 1) {
+        throw new AfadSourceError(
+          'AFAD_WINDOW_SATURATED',
+          `AFAD returned ${fetchOptions.responseLimit} records for a one-second window; completeness cannot be guaranteed.`,
+          metrics.attempts,
+          [],
+          metrics.splits,
+        );
+      }
+      if (metrics.splits >= fetchOptions.maxSplits) {
+        throw new AfadSourceError(
+          'AFAD_SPLIT_LIMIT',
+          'AFAD saturation exceeded the bounded window-split budget; completeness cannot be guaranteed.',
+          metrics.attempts,
+          [],
+          metrics.splits,
+        );
+      }
+
+      const midpoint = new Date(
+        (startSecond + Math.floor((endSecond - startSecond) / 2)) * 1_000,
+      );
+      metrics.splits += 1;
+      // AFAD time filters are second-granular and inclusive. The shared midpoint
+      // deliberately overlaps; source-event ID deduplication removes the boundary.
+      pendingWindows.push({ start: midpoint, end: window.end });
+      pendingWindows.push({ start: window.start, end: midpoint });
+      continue;
+    }
+
+    received += rawEvents.length;
+    for (const rawEvent of rawEvents) {
+      try {
+        const event = normalizeAfadEvent(rawEvent);
+        const existing = eventsById.get(event.sourceEventId);
+        if (existing) {
+          duplicatesDropped += 1;
+          if (sourceUpdateTime(event) >= sourceUpdateTime(existing)) {
+            eventsById.set(event.sourceEventId, event);
+          }
+        } else {
           eventsById.set(event.sourceEventId, event);
         }
-      } else {
-        eventsById.set(event.sourceEventId, event);
-      }
-    } catch (error) {
-      rejected += 1;
-      if (rejections.length < 25) {
-        rejections.push(rejectedRecord(rawEvent, error));
+      } catch (error) {
+        rejected += 1;
+        if (rejections.length < 25) {
+          rejections.push(rejectedRecord(rawEvent, error));
+        }
       }
     }
   }
 
-  if (rawEvents.data.length > 0 && eventsById.size === 0) {
+  if (received > 0 && eventsById.size === 0) {
     throw new AfadSourceError(
       'AFAD_NO_VALID_EVENTS',
       'AFAD returned records, but none passed validation.',
-      attempts,
+      metrics.attempts,
       rejections,
+      metrics.splits,
     );
   }
 
   return {
     events: [...eventsById.values()],
     rejections,
-    attempts,
-    received: rawEvents.data.length,
+    attempts: metrics.attempts,
+    splits: metrics.splits,
+    received,
     rejected,
     duplicatesDropped,
   };

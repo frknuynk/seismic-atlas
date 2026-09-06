@@ -22,6 +22,10 @@ Scheduled runs resume from the last successful cursor with overlap, recover gaps
 up to 24 hours, and perform a seven-day reconciliation every day to capture late
 AFAD revisions. Up to 25 malformed source records per run are preserved in a
 separate quarantine table for diagnosis and never enter the earthquake catalog.
+Responses that reach AFAD's 2,500-record ceiling are recursively split into
+smaller overlapping time windows and deduplicated across the boundary. If a
+one-second window is still saturated, ingestion fails without advancing its
+cursor rather than silently accepting incomplete data.
 
 ## Requirements
 
@@ -50,8 +54,9 @@ The production route requires `AFAD_SYNC_TOKEN`. Scheduled ingestion uses an
 overlapping cursor window of at least 15 minutes and never removes previously
 stored events when the upstream service is unavailable.
 
-Successful synchronization responses include a run ID, attempt count, accepted
-and rejected row counts, duplicate count, insert/update totals, and duration.
+Successful synchronization responses include a run ID, attempt and saturation
+split counts, accepted and rejected row counts, duplicate count, insert/update
+totals, and duration.
 When another synchronization already owns the AFAD lease, the second trigger is
 reported as `skipped` with reason `sync_in_progress`.
 

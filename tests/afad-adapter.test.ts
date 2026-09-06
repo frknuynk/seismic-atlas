@@ -63,6 +63,7 @@ describe('AFAD adapter', () => {
     expect(requestedUrl?.searchParams.get('end')).toBe('2026-09-03T00:00:00');
     expect(requestedUrl?.searchParams.get('minlat')).toBe('34');
     expect(requestedUrl?.searchParams.get('maxlon')).toBe('46');
+    expect(requestedUrl?.searchParams.get('limit')).toBe('2500');
     expect(requestedOptions?.redirect).toBe('follow');
     expect(events).toHaveLength(1);
   });
@@ -85,6 +86,103 @@ describe('AFAD adapter', () => {
 
     expect(result.attempts).toBe(3);
     expect(result.events).toHaveLength(1);
+  });
+
+  it('splits saturated windows and deduplicates their inclusive midpoint', async () => {
+    const requestedWindows: Array<{
+      start: string | null;
+      end: string | null;
+    }> = [];
+    let request = 0;
+    const fetcher = async (input: RequestInfo | URL) => {
+      request += 1;
+      const url =
+        input instanceof URL
+          ? input
+          : typeof input === 'string'
+            ? new URL(input)
+            : new URL(input.url);
+      requestedWindows.push({
+        start: url.searchParams.get('start'),
+        end: url.searchParams.get('end'),
+      });
+
+      if (request === 1) return Response.json([{}, {}, {}]);
+      if (request === 2) {
+        return Response.json([
+          { ...fixture, eventID: 'left' },
+          { ...fixture, eventID: 'boundary' },
+        ]);
+      }
+      return Response.json([
+        {
+          ...fixture,
+          eventID: 'boundary',
+          magnitude: '2.4',
+          isEventUpdate: true,
+          lastUpdateDate: '2026-09-03T02:00:00',
+        },
+        { ...fixture, eventID: 'right' },
+      ]);
+    };
+
+    const result = await fetchAfadWindowWithDiagnostics(
+      new Date('2026-09-01T00:00:00.000Z'),
+      new Date('2026-09-03T00:00:00.000Z'),
+      fetcher as typeof fetch,
+      { responseLimit: 3 },
+    );
+
+    expect(requestedWindows).toEqual([
+      { start: '2026-09-01T00:00:00', end: '2026-09-03T00:00:00' },
+      { start: '2026-09-01T00:00:00', end: '2026-09-02T00:00:00' },
+      { start: '2026-09-02T00:00:00', end: '2026-09-03T00:00:00' },
+    ]);
+    expect(result).toMatchObject({
+      attempts: 3,
+      splits: 1,
+      received: 4,
+      rejected: 0,
+      duplicatesDropped: 1,
+    });
+    expect(result.events).toHaveLength(3);
+    expect(
+      result.events.find((event) => event.sourceEventId === 'boundary'),
+    ).toMatchObject({ magnitude: 2.4, sourceStatus: 'updated' });
+  });
+
+  it('fails closed when a one-second window remains saturated', async () => {
+    const fetcher = async () => Response.json([{}, {}, {}]);
+
+    await expect(
+      fetchAfadWindowWithDiagnostics(
+        new Date('2026-09-01T00:00:00.000Z'),
+        new Date('2026-09-01T00:00:01.000Z'),
+        fetcher as typeof fetch,
+        { responseLimit: 3 },
+      ),
+    ).rejects.toMatchObject({
+      code: 'AFAD_WINDOW_SATURATED',
+      attempts: 1,
+      splits: 0,
+    });
+  });
+
+  it('fails closed when saturation exceeds the split budget', async () => {
+    const fetcher = async () => Response.json([fixture]);
+
+    await expect(
+      fetchAfadWindowWithDiagnostics(
+        new Date('2026-09-01T00:00:00.000Z'),
+        new Date('2026-09-03T00:00:00.000Z'),
+        fetcher as typeof fetch,
+        { maxSplits: 1, responseLimit: 1 },
+      ),
+    ).rejects.toMatchObject({
+      code: 'AFAD_SPLIT_LIMIT',
+      attempts: 2,
+      splits: 1,
+    });
   });
 
   it('quarantines malformed rows and deduplicates an upstream batch', async () => {
@@ -134,7 +232,9 @@ describe('AFAD adapter', () => {
         new Date('2026-09-03T00:00:00.000Z'),
         fetcher as typeof fetch,
       );
-      expect.unreachable('Expected an all-invalid AFAD response to fail closed');
+      expect.unreachable(
+        'Expected an all-invalid AFAD response to fail closed',
+      );
     } catch (error) {
       expect(error).toMatchObject({
         code: 'AFAD_NO_VALID_EVENTS',

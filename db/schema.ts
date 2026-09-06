@@ -103,6 +103,7 @@ export const ingestionRuns = sqliteTable(
     startedAt: integer('started_at').notNull(),
     completedAt: integer('completed_at'),
     attempts: integer('attempts').notNull().default(0),
+    splits: integer('splits').notNull().default(0),
     fetched: integer('fetched').notNull().default(0),
     accepted: integer('accepted').notNull().default(0),
     rejected: integer('rejected').notNull().default(0),

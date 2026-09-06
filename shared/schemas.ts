@@ -111,6 +111,7 @@ export const SourceHealthEntrySchema = z.object({
       completedAt: z.iso.datetime({ offset: true }).nullable(),
       durationMs: z.number().int().nonnegative().nullable(),
       attempts: z.number().int().nonnegative(),
+      splits: z.number().int().nonnegative(),
       fetched: z.number().int().nonnegative(),
       accepted: z.number().int().nonnegative(),
       rejected: z.number().int().nonnegative(),
