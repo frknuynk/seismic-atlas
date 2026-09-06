@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
+import {
+  isLegacyOverviewCamera,
+  TURKIYE_BOUNDS,
+  turkiyeOverviewForViewport,
+} from '@/lib/map/turkiye-overview';
 import type { CatalogEvent } from '@/shared/schemas';
 import type { MapBounds, MapCamera } from '@/shared/atlas-state';
 
@@ -24,11 +29,22 @@ const EVENTS_GLOW_LAYER = 'atlas-events-glow';
 const EVENTS_LAYER = 'atlas-events-points';
 const EVENTS_LABEL_LAYER = 'atlas-events-labels';
 const EVENTS_SELECTED_LAYER = 'atlas-events-selected';
-const TURKIYE_CENTER: [number, number] = [35.2, 38.65];
-const TURKIYE_ZOOM = 5.5;
-const TERRAIN_PITCH = 62;
-const TERRAIN_BEARING = -15;
-const TERRAIN_EXAGGERATION = 1.55;
+const TURKIYE_CENTER: [number, number] = [35.35, 39.05];
+const TERRAIN_EXAGGERATION = 1.3;
+
+function fitTurkiyeOverview(map: MapLibreMap, duration: number) {
+  const container = map.getContainer();
+  const view = turkiyeOverviewForViewport(
+    container.clientWidth,
+    container.clientHeight,
+  );
+  map.fitBounds(TURKIYE_BOUNDS, {
+    ...view,
+    duration,
+    curve: 1.25,
+    essential: false,
+  });
+}
 
 function createCircleImage(size: number) {
   const data = new Uint8Array(size * size * 4);
@@ -79,7 +95,8 @@ type MapCanvasProps = {
   nearestFaultId: string | null;
   onSelectEvent: (eventId: string) => void;
   onViewportChange: (bounds: MapBounds) => void;
-  onCameraChange: (camera: MapCamera) => void;
+  onCameraChange: (camera: MapCamera, userInitiated: boolean) => void;
+  onResetView: () => void;
 };
 
 export function MapCanvas({
@@ -93,18 +110,25 @@ export function MapCanvas({
   onSelectEvent,
   onViewportChange,
   onCameraChange,
+  onResetView,
 }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const initialCameraRef = useRef(initialCamera);
   const eventsRef = useRef(events);
   const onSelectEventRef = useRef(onSelectEvent);
   const onViewportChangeRef = useRef(onViewportChange);
   const onCameraChangeRef = useRef(onCameraChange);
+  const onResetViewRef = useRef(onResetView);
+  const overviewModeRef = useRef(
+    !initialCamera || isLegacyOverviewCamera(initialCamera),
+  );
   const [mapState, setMapState] = useState<'loading' | 'ready' | 'unavailable'>(
     'loading',
   );
   const [terrainReady, setTerrainReady] = useState(false);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
+  const [revealComplete, setRevealComplete] = useState(false);
 
   useEffect(() => {
     eventsRef.current = events;
@@ -123,11 +147,22 @@ export function MapCanvas({
   }, [onCameraChange]);
 
   useEffect(() => {
+    onResetViewRef.current = onResetView;
+  }, [onResetView]);
+
+  useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     let cancelled = false;
     let baseMapReady = false;
     let removePmtilesProtocol: (() => void) | null = null;
+    let revealTimer: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let cameraChangedByUser = false;
+    const markCameraInteraction = () => {
+      cameraChangedByUser = true;
+      overviewModeRef.current = false;
+    };
 
     void Promise.all([import('maplibre-gl'), import('pmtiles')])
       .then(([{ default: maplibregl }, { PMTiles, Protocol }]) => {
@@ -140,19 +175,36 @@ export function MapCanvas({
           .href;
         protocol.add(new PMTiles(faultArchiveUrl));
 
+        const restoredCamera = initialCameraRef.current;
+        const useOpeningView =
+          !restoredCamera || isLegacyOverviewCamera(restoredCamera);
+        overviewModeRef.current = useOpeningView;
+        const reducedMotion = window.matchMedia(
+          '(prefers-reduced-motion: reduce)',
+        ).matches;
+        const animateOpening = useOpeningView && !reducedMotion;
+
         const map = new maplibregl.Map({
           container: containerRef.current,
           style: process.env.NEXT_PUBLIC_BASEMAP_STYLE_URL ?? DEFAULT_STYLE,
-          center: TURKIYE_CENTER,
-          zoom: TURKIYE_ZOOM,
-          pitch: TERRAIN_PITCH,
-          bearing: TERRAIN_BEARING,
+          center: useOpeningView
+            ? TURKIYE_CENTER
+            : [restoredCamera!.longitude, restoredCamera!.latitude],
+          zoom: useOpeningView ? 3.85 : restoredCamera!.zoom,
+          pitch: useOpeningView ? 0 : restoredCamera!.pitch,
+          bearing: useOpeningView ? 0 : restoredCamera!.bearing,
           minZoom: 3,
           maxZoom: 18,
           maxPitch: 78,
           attributionControl: false,
           canvasContextAttributes: { antialias: true },
         });
+        const mapContainer = map.getContainer();
+        mapContainer.addEventListener('pointerdown', markCameraInteraction);
+        mapContainer.addEventListener('wheel', markCameraInteraction, {
+          passive: true,
+        });
+        mapContainer.addEventListener('keydown', markCameraInteraction);
 
         map.addControl(
           new maplibregl.NavigationControl({
@@ -199,11 +251,11 @@ export function MapCanvas({
               source: HILLSHADE_SOURCE,
               paint: {
                 'hillshade-accent-color': '#4d8792',
-                'hillshade-exaggeration': 0.42,
-                'hillshade-highlight-color': '#c9eee5',
+                'hillshade-exaggeration': 0.34,
+                'hillshade-highlight-color': '#d8f4ed',
                 'hillshade-illumination-anchor': 'map',
                 'hillshade-illumination-direction': 322,
-                'hillshade-shadow-color': '#06131d',
+                'hillshade-shadow-color': '#071821',
               },
             },
             map.getLayer('building') ? 'building' : undefined,
@@ -450,15 +502,22 @@ export function MapCanvas({
               minLon: Math.max(-180, bounds.getWest()),
               maxLon: Math.min(180, bounds.getEast()),
             });
-            onCameraChangeRef.current({
-              longitude: center.lng,
-              latitude: center.lat,
-              zoom: map.getZoom(),
-              pitch: map.getPitch(),
-              bearing: map.getBearing(),
-            });
+            onCameraChangeRef.current(
+              {
+                longitude: center.lng,
+                latitude: center.lat,
+                zoom: map.getZoom(),
+                pitch: map.getPitch(),
+                bearing: map.getBearing(),
+              },
+              cameraChangedByUser,
+            );
+            cameraChangedByUser = false;
           };
 
+          map.on('movestart', (event) => {
+            if (event.originalEvent) markCameraInteraction();
+          });
           map.on('moveend', emitMapState);
           emitMapState();
 
@@ -467,12 +526,12 @@ export function MapCanvas({
             exaggeration: TERRAIN_EXAGGERATION,
           });
           map.setSky({
-            'sky-color': '#06121b',
-            'horizon-color': '#416b76',
-            'fog-color': '#193944',
-            'sky-horizon-blend': 0.38,
-            'horizon-fog-blend': 0.72,
-            'fog-ground-blend': 0.16,
+            'sky-color': '#041019',
+            'horizon-color': '#315f6b',
+            'fog-color': '#17343e',
+            'sky-horizon-blend': 0.46,
+            'horizon-fog-blend': 0.66,
+            'fog-ground-blend': 0.2,
             'atmosphere-blend': [
               'interpolate',
               ['linear'],
@@ -485,13 +544,26 @@ export function MapCanvas({
           });
           map.setLight({
             anchor: 'map',
-            color: '#d6f2ee',
-            intensity: 0.42,
-            position: [1.25, 322, 48],
+            color: '#dcf5ef',
+            intensity: 0.38,
+            position: [1.15, 315, 46],
           });
 
           setTerrainReady(true);
           setMapState('ready');
+          revealTimer = window.setTimeout(() => setRevealComplete(true), 750);
+
+          if (useOpeningView) {
+            window.requestAnimationFrame(() => {
+              fitTurkiyeOverview(map, animateOpening ? 1_700 : 0);
+            });
+          }
+
+          resizeObserver = new ResizeObserver(() => {
+            map.resize();
+            if (overviewModeRef.current) fitTurkiyeOverview(map, 0);
+          });
+          resizeObserver.observe(map.getContainer());
         });
 
         map.on('error', () => {
@@ -507,9 +579,15 @@ export function MapCanvas({
 
     return () => {
       cancelled = true;
+      const mapContainer = mapRef.current?.getContainer();
+      mapContainer?.removeEventListener('pointerdown', markCameraInteraction);
+      mapContainer?.removeEventListener('wheel', markCameraInteraction);
+      mapContainer?.removeEventListener('keydown', markCameraInteraction);
       mapRef.current?.remove();
       mapRef.current = null;
       removePmtilesProtocol?.();
+      resizeObserver?.disconnect();
+      if (revealTimer !== null) window.clearTimeout(revealTimer);
     };
   }, []);
 
@@ -575,17 +653,6 @@ export function MapCanvas({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !initialCamera || mapState !== 'ready') return;
-    map.jumpTo({
-      center: [initialCamera.longitude, initialCamera.latitude],
-      zoom: initialCamera.zoom,
-      pitch: initialCamera.pitch,
-      bearing: initialCamera.bearing,
-    });
-  }, [initialCamera, mapState]);
-
-  useEffect(() => {
-    const map = mapRef.current;
     if (!map?.getLayer(EVENTS_SELECTED_LAYER)) return;
 
     map.setFilter(EVENTS_SELECTED_LAYER, [
@@ -596,23 +663,40 @@ export function MapCanvas({
 
     const selected = events.find((event) => event.id === selectedEventId);
     if (selected) {
+      overviewModeRef.current = false;
+      const container = map.getContainer();
+      const overview = turkiyeOverviewForViewport(
+        container.clientWidth,
+        container.clientHeight,
+      );
       map.easeTo({
         center: [selected.longitude, selected.latitude],
         zoom: Math.max(map.getZoom(), 7),
-        pitch: terrainEnabled ? TERRAIN_PITCH : 0,
+        pitch: terrainEnabled ? overview.pitch : 0,
         duration: 850,
       });
     }
   }, [events, selectedEventId, terrainEnabled]);
 
   function resetView() {
-    mapRef.current?.easeTo({
-      center: TURKIYE_CENTER,
-      zoom: TURKIYE_ZOOM,
-      pitch: terrainEnabled ? TERRAIN_PITCH : 0,
-      bearing: terrainEnabled ? TERRAIN_BEARING : 0,
-      duration: 900,
-    });
+    const map = mapRef.current;
+    if (!map) return;
+    overviewModeRef.current = true;
+    onResetViewRef.current();
+    if (terrainEnabled) fitTurkiyeOverview(map, 900);
+    else {
+      const container = map.getContainer();
+      const view = turkiyeOverviewForViewport(
+        container.clientWidth,
+        container.clientHeight,
+      );
+      map.fitBounds(TURKIYE_BOUNDS, {
+        ...view,
+        pitch: 0,
+        bearing: 0,
+        duration: 900,
+      });
+    }
   }
 
   function setTerrain(enabled: boolean) {
@@ -624,9 +708,14 @@ export function MapCanvas({
         ? { source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION }
         : null,
     );
+    const container = map.getContainer();
+    const overview = turkiyeOverviewForViewport(
+      container.clientWidth,
+      container.clientHeight,
+    );
     map.easeTo({
-      pitch: enabled ? TERRAIN_PITCH : 0,
-      bearing: enabled ? TERRAIN_BEARING : 0,
+      pitch: enabled ? overview.pitch : 0,
+      bearing: enabled ? overview.bearing : 0,
       duration: 700,
     });
     setTerrainEnabled(enabled);
@@ -640,14 +729,16 @@ export function MapCanvas({
         aria-label="Interactive 3D terrain map of Türkiye"
       />
 
-      <div className="absolute right-3 top-3 flex items-center gap-2 rounded-lg border border-white/10 bg-[#07141d]/86 p-1.5 shadow-2xl backdrop-blur-xl">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_52%_42%,transparent_42%,rgba(3,12,18,0.38)_100%),linear-gradient(to_bottom,rgba(3,12,18,0.18),transparent_22%,transparent_72%,rgba(3,12,18,0.28))]" />
+
+      <div className="absolute right-3 top-3 flex items-center gap-2 rounded-full border border-white/10 bg-[#07141d]/82 p-1.5 shadow-2xl backdrop-blur-xl">
         <Toggle
           pressed={terrainEnabled}
           onPressedChange={setTerrain}
           disabled={!terrainReady}
           variant="outline"
           aria-label="Toggle 3D terrain"
-          className="border-white/10 bg-white/5 px-3 text-slate-100 hover:bg-white/10 data-[state=on]:bg-cyan-300 data-[state=on]:text-slate-950"
+          className="rounded-full border-white/10 bg-white/5 px-3 text-slate-100 hover:bg-white/10 data-[state=on]:bg-cyan-300 data-[state=on]:text-slate-950"
         >
           <Mountain className="size-4" aria-hidden="true" />
           3D
@@ -658,30 +749,50 @@ export function MapCanvas({
           variant="ghost"
           onClick={resetView}
           aria-label="Reset map to Türkiye"
-          className="text-slate-200 hover:bg-white/10 hover:text-white"
+          className="rounded-full text-slate-200 hover:bg-white/10 hover:text-white"
         >
           <RotateCcw className="size-4" aria-hidden="true" />
           <span className="hidden sm:inline">Reset</span>
         </Button>
       </div>
 
-      <div className="pointer-events-none absolute left-3 top-3 hidden items-center gap-2 rounded-full border border-white/10 bg-[#07141d]/78 px-3 py-1.5 text-xs font-medium tracking-wide text-slate-200 shadow-xl backdrop-blur-lg md:flex">
-        <LocateFixed className="size-3.5 text-cyan-300" aria-hidden="true" />
-        {events.length > 0
-          ? `${events.length.toLocaleString()} AFAD events · 7 days`
-          : 'Türkiye · terrain 1.55×'}
+      <div className="pointer-events-none absolute left-3 top-3 hidden items-center gap-3 rounded-full border border-white/10 bg-[#07141d]/78 px-3.5 py-2 text-xs text-slate-200 shadow-xl backdrop-blur-lg md:flex">
+        <span className="relative flex size-2">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-300 opacity-70 motion-reduce:animate-none" />
+          <span className="relative inline-flex size-2 rounded-full bg-emerald-300" />
+        </span>
+        <span className="font-semibold uppercase tracking-[0.14em] text-slate-100">
+          Live atlas
+        </span>
+        <span className="h-3 w-px bg-white/15" />
+        <span className="text-slate-300">
+          {events.length > 0
+            ? `${events.length.toLocaleString()} AFAD events · GEM faults`
+            : 'Türkiye · 3D terrain'}
+        </span>
       </div>
 
-      {mapState !== 'ready' && (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_center,rgba(57,206,210,0.14),transparent_42%),linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:auto,42px_42px,42px_42px]">
-          <div className="rounded-lg border border-white/10 bg-[#091821]/92 px-4 py-3 text-center text-sm text-slate-300 shadow-2xl backdrop-blur-xl">
-            <Mountain
-              className="mx-auto mb-2 size-5 text-cyan-300"
-              aria-hidden="true"
-            />
-            {mapState === 'loading'
-              ? 'Loading 3D terrain…'
-              : 'Terrain is unavailable. Atlas controls remain available.'}
+      {!revealComplete && (
+        <div
+          className={`pointer-events-none absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_50%_46%,rgba(57,206,210,0.17),transparent_38%),linear-gradient(rgba(255,255,255,0.022)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.022)_1px,transparent_1px),#06131c] bg-[size:auto,48px_48px,48px_48px,auto] transition-opacity duration-700 ${
+            mapState === 'ready' ? 'opacity-0' : 'opacity-100'
+          }`}
+        >
+          <div className="text-center text-slate-300">
+            <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full border border-cyan-300/25 bg-cyan-300/10 shadow-[0_0_45px_rgba(103,232,249,0.14)]">
+              <LocateFixed
+                className="size-5 animate-pulse text-cyan-300 motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            </div>
+            <p className="text-sm font-medium tracking-wide text-slate-100">
+              Seismic Atlas
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              {mapState === 'unavailable'
+                ? 'Terrain unavailable · controls remain active'
+                : 'Preparing terrain and seismic layers'}
+            </p>
           </div>
         </div>
       )}

@@ -34,6 +34,7 @@ import { useEventDetail } from '@/hooks/use-event-detail';
 import { useNearestFault } from '@/hooks/use-nearest-fault';
 import { useRecentEvents } from '@/hooks/use-recent-events';
 import { eventInTimelineWindow } from '@/lib/timeline';
+import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
 import {
   type AtlasFilters,
   type MapBounds,
@@ -89,6 +90,15 @@ function parseInitialState(search: InitialSearch) {
   const timelineStart = parseNumber(search.t0);
   const timelineEnd = parseNumber(search.t1);
 
+  const parsedCamera =
+    longitude !== null &&
+    latitude !== null &&
+    zoom !== null &&
+    pitch !== null &&
+    bearing !== null
+      ? { longitude, latitude, zoom, pitch, bearing }
+      : null;
+
   return {
     filters: {
       rangeHours: range !== null && isTimeRange(range) ? range : 168,
@@ -110,14 +120,7 @@ function parseInitialState(search: InitialSearch) {
       timelineStart < timelineEnd
         ? { startMs: timelineStart, endMs: timelineEnd }
         : null,
-    camera:
-      longitude !== null &&
-      latitude !== null &&
-      zoom !== null &&
-      pitch !== null &&
-      bearing !== null
-        ? { longitude, latitude, zoom, pitch, bearing }
-        : null,
+    camera: isLegacyOverviewCamera(parsedCamera) ? null : parsedCamera,
   };
 }
 
@@ -129,7 +132,7 @@ export function AtlasShell({
   const [initialState] = useState(() => parseInitialState(initialSearch));
   const [filters, setFilters] = useState<AtlasFilters>(initialState.filters);
   const [bounds, setBounds] = useState<MapBounds | null>(null);
-  const [camera, setCamera] = useState<MapCamera | null>(null);
+  const [camera, setCamera] = useState<MapCamera | null>(initialState.camera);
   const [eventsVisible, setEventsVisible] = useState(
     initialState.eventsVisible,
   );
@@ -221,9 +224,12 @@ export function AtlasShell({
   const handleBoundsChange = useCallback((nextBounds: MapBounds) => {
     setBounds(nextBounds);
   }, []);
-  const handleCameraChange = useCallback((nextCamera: MapCamera) => {
-    setCamera(nextCamera);
-  }, []);
+  const handleCameraChange = useCallback(
+    (nextCamera: MapCamera, userInitiated: boolean) => {
+      if (userInitiated) setCamera(nextCamera);
+    },
+    [],
+  );
 
   async function shareView() {
     try {
@@ -384,6 +390,7 @@ export function AtlasShell({
             onSelectEvent={setSelectedEventId}
             onViewportChange={handleBoundsChange}
             onCameraChange={handleCameraChange}
+            onResetView={() => setCamera(null)}
           />
 
           <div className="absolute left-3 top-3 flex gap-2 md:hidden">
