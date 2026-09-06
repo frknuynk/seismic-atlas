@@ -7,7 +7,9 @@ schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
 bounded AFAD ingestion, revision-aware storage, catalog APIs, source health, and
 real earthquake markers on the 3D map. The atlas also renders 1,165 regional
 active-fault segments from the open GEM Global Active Faults Database and shows
-the nearest mapped segment as context for a selected earthquake.
+the nearest mapped segment as context for a selected earthquake. A synchronized
+timeline filters the map by time bucket, and current-view search locates stored
+events by place, magnitude, or AFAD event ID.
 
 ## Requirements
 

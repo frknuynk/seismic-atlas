@@ -21,6 +21,11 @@ export type MapCamera = {
   bearing: number;
 };
 
+export type TimelineWindow = {
+  startMs: number;
+  endMs: number;
+};
+
 export const DEFAULT_ATLAS_FILTERS: AtlasFilters = {
   rangeHours: 168,
   minMagnitude: 0,

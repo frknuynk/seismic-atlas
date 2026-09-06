@@ -8,16 +8,17 @@ import {
   Layers3,
   MapPin,
   RefreshCw,
-  Search,
   Share2,
   SlidersHorizontal,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EventDetailSheet } from '@/components/atlas/event-detail-sheet';
+import { EventSearch } from '@/components/atlas/event-search';
 import {
   FilterControls,
   LayerControls,
 } from '@/components/atlas/explorer-controls';
+import { EventTimeline } from '@/components/atlas/event-timeline';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,11 +33,13 @@ import {
 import { useEventDetail } from '@/hooks/use-event-detail';
 import { useNearestFault } from '@/hooks/use-nearest-fault';
 import { useRecentEvents } from '@/hooks/use-recent-events';
+import { eventInTimelineWindow } from '@/lib/timeline';
 import {
   type AtlasFilters,
   type MapBounds,
   type MapCamera,
   type TimeRangeHours,
+  type TimelineWindow,
 } from '@/shared/atlas-state';
 
 function formatEventTime(value: string) {
@@ -83,6 +86,8 @@ function parseInitialState(search: InitialSearch) {
   const bearing = parseNumber(search.bearing);
   const event = typeof search.event === 'string' ? search.event : null;
   const faultOpacity = parseNumber(search.faultOpacity);
+  const timelineStart = parseNumber(search.t0);
+  const timelineEnd = parseNumber(search.t1);
 
   return {
     filters: {
@@ -99,6 +104,12 @@ function parseInitialState(search: InitialSearch) {
     faultsVisible: search.faults !== 'off',
     faultOpacity:
       faultOpacity === null ? 0.82 : Math.min(1, Math.max(0.2, faultOpacity)),
+    timelineWindow:
+      timelineStart !== null &&
+      timelineEnd !== null &&
+      timelineStart < timelineEnd
+        ? { startMs: timelineStart, endMs: timelineEnd }
+        : null,
     camera:
       longitude !== null &&
       latitude !== null &&
@@ -126,6 +137,10 @@ export function AtlasShell({
     initialState.faultsVisible,
   );
   const [faultOpacity, setFaultOpacity] = useState(initialState.faultOpacity);
+  const [selectedTimeWindow, setSelectedTimeWindow] =
+    useState<TimelineWindow | null>(initialState.timelineWindow);
+  const [previewTimeWindow, setPreviewTimeWindow] =
+    useState<TimelineWindow | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
     initialState.event,
   );
@@ -134,6 +149,21 @@ export function AtlasShell({
   );
   const { events, health, state, refresh } = useRecentEvents(filters, bounds);
   const { detail, loading: detailLoading } = useEventDetail(selectedEventId);
+  const selectedEvents = useMemo(
+    () =>
+      selectedTimeWindow
+        ? events.filter((event) =>
+            eventInTimelineWindow(event, selectedTimeWindow),
+          )
+        : events,
+    [events, selectedTimeWindow],
+  );
+  const mapEvents = useMemo(() => {
+    const activeWindow = previewTimeWindow ?? selectedTimeWindow;
+    return activeWindow
+      ? events.filter((event) => eventInTimelineWindow(event, activeWindow))
+      : events;
+  }, [events, previewTimeWindow, selectedTimeWindow]);
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
     [events, selectedEventId],
@@ -152,6 +182,10 @@ export function AtlasShell({
     if (!eventsVisible) url.searchParams.set('earthquakes', 'off');
     if (!faultsVisible) url.searchParams.set('faults', 'off');
     url.searchParams.set('faultOpacity', faultOpacity.toFixed(2));
+    if (selectedTimeWindow) {
+      url.searchParams.set('t0', String(selectedTimeWindow.startMs));
+      url.searchParams.set('t1', String(selectedTimeWindow.endMs));
+    }
     if (camera) {
       url.searchParams.set('lng', camera.longitude.toFixed(4));
       url.searchParams.set('lat', camera.latitude.toFixed(4));
@@ -166,8 +200,23 @@ export function AtlasShell({
     faultOpacity,
     faultsVisible,
     filters,
+    selectedTimeWindow,
     selectedEventId,
   ]);
+
+  function handleFiltersChange(nextFilters: AtlasFilters) {
+    if (nextFilters.rangeHours !== filters.rangeHours) {
+      setSelectedTimeWindow(null);
+      setPreviewTimeWindow(null);
+    }
+    setFilters(nextFilters);
+  }
+
+  function handleSearchSelection(eventId: string) {
+    setSelectedTimeWindow(null);
+    setPreviewTimeWindow(null);
+    setSelectedEventId(eventId);
+  }
 
   const handleBoundsChange = useCallback((nextBounds: MapBounds) => {
     setBounds(nextBounds);
@@ -203,21 +252,7 @@ export function AtlasShell({
           </div>
         </div>
 
-        <div className="ml-auto hidden max-w-sm flex-1 items-center rounded-md border bg-card/60 px-3 lg:flex">
-          <Search className="size-4 text-muted-foreground" aria-hidden="true" />
-          <input
-            aria-label="Search events or places"
-            disabled
-            placeholder="Search arrives in the next slice"
-            className="h-9 w-full bg-transparent px-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
-          />
-          <Badge
-            variant="outline"
-            className="text-[11px] text-muted-foreground"
-          >
-            Phase 1
-          </Badge>
-        </div>
+        <EventSearch events={events} onSelectEvent={handleSearchSelection} />
 
         <Button type="button" variant="outline" size="sm" onClick={shareView}>
           {shareState === 'copied' ? (
@@ -240,8 +275,8 @@ export function AtlasShell({
           <div className="border-b p-4">
             <FilterControls
               filters={filters}
-              resultCount={events.length}
-              onChange={setFilters}
+              resultCount={selectedEvents.length}
+              onChange={handleFiltersChange}
             />
           </div>
 
@@ -251,7 +286,7 @@ export function AtlasShell({
               eventsVisible={eventsVisible}
               faultsVisible={faultsVisible}
               faultOpacity={faultOpacity}
-              eventCount={events.length}
+              eventCount={selectedEvents.length}
               onEventsVisibleChange={setEventsVisible}
               onFaultsVisibleChange={setFaultsVisible}
               onFaultOpacityChange={setFaultOpacity}
@@ -276,7 +311,7 @@ export function AtlasShell({
                 </Button>
               </div>
               <div className="space-y-1.5">
-                {events.slice(0, 12).map((event) => (
+                {selectedEvents.slice(0, 12).map((event) => (
                   <button
                     key={event.id}
                     type="button"
@@ -299,7 +334,7 @@ export function AtlasShell({
                     </span>
                   </button>
                 ))}
-                {state === 'ready' && events.length === 0 && (
+                {state === 'ready' && selectedEvents.length === 0 && (
                   <p className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
                     No stored events match this map view and filter combination.
                   </p>
@@ -339,7 +374,7 @@ export function AtlasShell({
 
         <div className="relative min-w-0 flex-1">
           <MapCanvas
-            events={events}
+            events={mapEvents}
             eventsVisible={eventsVisible}
             faultsVisible={faultsVisible}
             faultOpacity={faultOpacity}
@@ -367,8 +402,8 @@ export function AtlasShell({
                 <div className="p-4">
                   <FilterControls
                     filters={filters}
-                    resultCount={events.length}
-                    onChange={setFilters}
+                    resultCount={selectedEvents.length}
+                    onChange={handleFiltersChange}
                   />
                 </div>
               </SheetContent>
@@ -392,7 +427,7 @@ export function AtlasShell({
                     eventsVisible={eventsVisible}
                     faultsVisible={faultsVisible}
                     faultOpacity={faultOpacity}
-                    eventCount={events.length}
+                    eventCount={selectedEvents.length}
                     onEventsVisibleChange={setEventsVisible}
                     onFaultsVisibleChange={setFaultsVisible}
                     onFaultOpacityChange={setFaultOpacity}
@@ -412,12 +447,16 @@ export function AtlasShell({
                   <h2 className="text-sm font-semibold">
                     Earthquakes in this view
                   </h2>
-                  <Badge variant="outline">{events.length} events</Badge>
+                  <Badge variant="outline">
+                    {selectedEvents.length} events
+                  </Badge>
                 </div>
                 <p className="mt-1 text-sm leading-5 text-muted-foreground">
                   {state === 'error'
                     ? 'The stored catalog could not be loaded. The terrain map remains available.'
-                    : 'Move the map or adjust filters to refine the list. Select any marker for full source details.'}
+                    : selectedTimeWindow
+                      ? 'A timeline bucket is filtering the map and list. Clear it to restore the full range.'
+                      : 'Move the map or adjust filters to refine the list. Select a timeline bucket or map marker.'}
                 </p>
                 <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1.5">
@@ -428,6 +467,13 @@ export function AtlasShell({
                     M {filters.minMagnitude.toFixed(1)}+
                   </span>
                 </div>
+                <EventTimeline
+                  events={events}
+                  rangeHours={filters.rangeHours}
+                  selectedWindow={selectedTimeWindow}
+                  onSelectedWindowChange={setSelectedTimeWindow}
+                  onPreviewWindowChange={setPreviewTimeWindow}
+                />
               </div>
             </div>
           </section>
