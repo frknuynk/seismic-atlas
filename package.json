@@ -1,6 +1,6 @@
 {
   "name": "seismic-atlas",
-  "version": "0.4.0-alpha.1",
+  "version": "0.5.0-alpha.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"

@@ -133,6 +133,8 @@ export function MapCanvas({
   const [revealComplete, setRevealComplete] = useState(false);
   const selectedEvent =
     events.find((event) => event.id === selectedEventId) ?? null;
+  const selectedEventLatitude = selectedEvent?.latitude ?? null;
+  const selectedEventLongitude = selectedEvent?.longitude ?? null;
 
   useEffect(() => {
     eventsRef.current = events;
@@ -665,15 +667,18 @@ export function MapCanvas({
       selectedEventId ?? '',
     ]);
 
-    const selected = events.find((event) => event.id === selectedEventId);
-    if (!selected) return;
+    if (selectedEventLatitude === null || selectedEventLongitude === null)
+      return;
 
     overviewModeRef.current = false;
     const container = map.getContainer();
     const syncFocusBeacon = () => {
       const beacon = focusBeaconRef.current;
       if (!beacon) return;
-      const point = map.project([selected.longitude, selected.latitude]);
+      const point = map.project([
+        selectedEventLongitude,
+        selectedEventLatitude,
+      ]);
       const containerBounds = container.getBoundingClientRect();
       const left = containerBounds.left + point.x;
       const top = containerBounds.top + point.y;
@@ -697,7 +702,7 @@ export function MapCanvas({
     map.on('resize', syncFocusBeacon);
     syncFocusBeacon();
     map.easeTo({
-      center: [selected.longitude, selected.latitude],
+      center: [selectedEventLongitude, selectedEventLatitude],
       zoom: Math.max(map.getZoom(), 7),
       pitch: terrainEnabled ? focus.pitch : 0,
       offset: focus.offset,
@@ -708,7 +713,12 @@ export function MapCanvas({
       map.off('move', syncFocusBeacon);
       map.off('resize', syncFocusBeacon);
     };
-  }, [events, selectedEventId, terrainEnabled]);
+  }, [
+    selectedEventId,
+    selectedEventLatitude,
+    selectedEventLongitude,
+    terrainEnabled,
+  ]);
 
   function resetView() {
     const map = mapRef.current;
@@ -765,12 +775,13 @@ export function MapCanvas({
 
       {selectedEvent && (
         <div
+          key={selectedEvent.id}
           ref={focusBeaconRef}
           data-selected-event-beacon=""
           className="pointer-events-none fixed z-[60] hidden -translate-x-1/2 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-200 sm:grid"
           aria-hidden="true"
         >
-          <span className="absolute size-20 animate-ping rounded-full border border-cyan-200/35 bg-cyan-300/10 motion-reduce:animate-none" />
+          <span className="atlas-event-focus-ring absolute size-20 rounded-full border border-cyan-200/35 bg-cyan-300/10" />
           <span className="absolute size-12 rounded-full border border-cyan-100/60 bg-cyan-300/15 shadow-[0_0_32px_rgba(103,232,249,0.85)]" />
           <span className="relative size-4 rounded-full border-2 border-white bg-cyan-300 shadow-[0_0_0_5px_rgba(8,25,34,0.85),0_0_24px_rgba(255,255,255,0.95)]" />
           <span className="absolute top-8 rounded-full border border-white/20 bg-[#07141d] px-2 py-1 font-mono text-xs font-semibold text-white shadow-xl">

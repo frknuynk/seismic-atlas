@@ -2,9 +2,11 @@
 
 import {
   Activity,
+  Binoculars,
   Check,
   Clock3,
   Database,
+  FlaskConical,
   Layers3,
   MapPin,
   RefreshCw,
@@ -14,6 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EventDetailSheet } from '@/components/atlas/event-detail-sheet';
 import { EventSearch } from '@/components/atlas/event-search';
+import { CatalogLab } from '@/components/atlas/catalog-lab';
 import {
   FilterControls,
   LayerControls,
@@ -23,6 +26,7 @@ import { MapCanvas } from '@/components/map/map-canvas';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Sheet,
   SheetContent,
@@ -39,6 +43,7 @@ import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
 import type { SourceHealthResponse } from '@/shared/schemas';
 import {
   type AtlasFilters,
+  type AtlasMode,
   type MapBounds,
   type MapCamera,
   type TimeRangeHours,
@@ -121,6 +126,7 @@ function parseInitialState(search: InitialSearch) {
   const faultOpacity = parseNumber(search.faultOpacity);
   const timelineStart = parseNumber(search.t0);
   const timelineEnd = parseNumber(search.t1);
+  const mode: AtlasMode = search.mode === 'lab' ? 'lab' : 'explore';
 
   const parsedCamera =
     longitude !== null &&
@@ -152,6 +158,7 @@ function parseInitialState(search: InitialSearch) {
       timelineStart < timelineEnd
         ? { startMs: timelineStart, endMs: timelineEnd }
         : null,
+    mode,
     camera: isLegacyOverviewCamera(parsedCamera) ? null : parsedCamera,
   };
 }
@@ -163,6 +170,7 @@ export function AtlasShell({
 }) {
   const [initialState] = useState(() => parseInitialState(initialSearch));
   const [filters, setFilters] = useState<AtlasFilters>(initialState.filters);
+  const [mode, setMode] = useState<AtlasMode>(initialState.mode);
   const [bounds, setBounds] = useState<MapBounds | null>(null);
   const [camera, setCamera] = useState<MapCamera | null>(initialState.camera);
   const [eventsVisible, setEventsVisible] = useState(
@@ -217,6 +225,7 @@ export function AtlasShell({
     if (!eventsVisible) url.searchParams.set('earthquakes', 'off');
     if (!faultsVisible) url.searchParams.set('faults', 'off');
     url.searchParams.set('faultOpacity', faultOpacity.toFixed(2));
+    if (mode === 'lab') url.searchParams.set('mode', mode);
     if (selectedTimeWindow) {
       url.searchParams.set('t0', String(selectedTimeWindow.startMs));
       url.searchParams.set('t1', String(selectedTimeWindow.endMs));
@@ -235,6 +244,7 @@ export function AtlasShell({
     faultOpacity,
     faultsVisible,
     filters,
+    mode,
     selectedTimeWindow,
     selectedEventId,
   ]);
@@ -289,6 +299,23 @@ export function AtlasShell({
             </p>
           </div>
         </div>
+
+        <Tabs
+          value={mode}
+          onValueChange={(value) => setMode(value as AtlasMode)}
+          className="shrink-0"
+        >
+          <TabsList aria-label="Atlas mode" className="bg-muted/70">
+            <TabsTrigger value="explore" aria-label="Explore mode">
+              <Binoculars className="size-3.5" aria-hidden="true" />
+              <span className="hidden lg:inline">Explore</span>
+            </TabsTrigger>
+            <TabsTrigger value="lab" aria-label="Catalog Lab mode">
+              <FlaskConical className="size-3.5" aria-hidden="true" />
+              <span className="hidden lg:inline">Catalog Lab</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         <EventSearch events={events} onSelectEvent={handleSearchSelection} />
 
@@ -484,46 +511,55 @@ export function AtlasShell({
             </Sheet>
           </div>
 
-          <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">
-            <div className="flex items-start gap-3">
-              <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
-                <MapPin className="size-4" aria-hidden="true" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-semibold">
-                    Earthquakes in this view
-                  </h2>
-                  <Badge variant="outline">
-                    {selectedEvents.length} events
-                  </Badge>
+          {mode === 'lab' ? (
+            <CatalogLab
+              events={selectedEvents}
+              filters={filters}
+              bounds={bounds}
+              timelineWindow={selectedTimeWindow}
+            />
+          ) : (
+            <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">
+              <div className="flex items-start gap-3">
+                <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                  <MapPin className="size-4" aria-hidden="true" />
                 </div>
-                <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                  {state === 'error'
-                    ? 'The stored catalog could not be loaded. The terrain map remains available.'
-                    : selectedTimeWindow
-                      ? 'A timeline bucket is filtering the map and list. Clear it to restore the full range.'
-                      : 'Move the map or adjust filters to refine the list. Select a timeline bucket or map marker.'}
-                </p>
-                <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <Clock3 className="size-3.5" aria-hidden="true" />{' '}
-                    {sourceFreshness(health?.lastSuccessAt)}
-                  </span>
-                  <span className="font-mono">
-                    M {filters.minMagnitude.toFixed(1)}+
-                  </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold">
+                      Earthquakes in this view
+                    </h2>
+                    <Badge variant="outline">
+                      {selectedEvents.length} events
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                    {state === 'error'
+                      ? 'The stored catalog could not be loaded. The terrain map remains available.'
+                      : selectedTimeWindow
+                        ? 'A timeline bucket is filtering the map and list. Clear it to restore the full range.'
+                        : 'Move the map or adjust filters to refine the list. Select a timeline bucket or map marker.'}
+                  </p>
+                  <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <Clock3 className="size-3.5" aria-hidden="true" />{' '}
+                      {sourceFreshness(health?.lastSuccessAt)}
+                    </span>
+                    <span className="font-mono">
+                      M {filters.minMagnitude.toFixed(1)}+
+                    </span>
+                  </div>
+                  <EventTimeline
+                    events={events}
+                    rangeHours={filters.rangeHours}
+                    selectedWindow={selectedTimeWindow}
+                    onSelectedWindowChange={setSelectedTimeWindow}
+                    onPreviewWindowChange={setPreviewTimeWindow}
+                  />
                 </div>
-                <EventTimeline
-                  events={events}
-                  rangeHours={filters.rangeHours}
-                  selectedWindow={selectedTimeWindow}
-                  onSelectedWindowChange={setSelectedTimeWindow}
-                  onPreviewWindowChange={setPreviewTimeWindow}
-                />
               </div>
-            </div>
-          </section>
+            </section>
+          )}
         </div>
       </section>
 

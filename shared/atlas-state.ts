@@ -1,4 +1,5 @@
 export type TimeRangeHours = 24 | 72 | 168;
+export type AtlasMode = 'explore' | 'lab';
 
 export type AtlasFilters = {
   rangeHours: TimeRangeHours;

@@ -2,7 +2,7 @@
 
 A map-first, provenance-aware seismic exploration workspace for Türkiye.
 
-Current development version: **0.4.0-alpha.1**.
+Current development version: **0.5.0-alpha.0**.
 
 Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
 schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
@@ -32,6 +32,14 @@ events and revisions with JSON-backed transactions of up to 1,000 events. Long
 runs renew their D1 lease, a replaced lease fences the old worker before it can
 write, and a new owner marks abandoned `running` records as failed. The source
 health audit includes the number of database write batches used by each run.
+
+The first v0.5 research slice adds an Explore/Catalog Lab mode switch and a
+browser-side analysis worker. The Lab computes event-time, magnitude, depth,
+and cumulative frequency-magnitude distributions for the exact filtered map
+subset. It reports catalog coverage and magnitude-type composition, refuses to
+present a b-value before catalog completeness is estimated, and exports the
+selection as CSV, GeoJSON, or a reproducible methods manifest. Lab mode is part
+of the shareable URL and does not add server-side analysis cost.
 
 ## Requirements
 
