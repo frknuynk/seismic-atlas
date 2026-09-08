@@ -2,7 +2,7 @@
 
 A map-first, provenance-aware seismic exploration workspace for Türkiye.
 
-Current development version: **0.4.0-alpha.0**.
+Current development version: **0.4.0-alpha.1**.
 
 Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
 schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
@@ -26,6 +26,12 @@ Responses that reach AFAD's 2,500-record ceiling are recursively split into
 smaller overlapping time windows and deduplicated across the boundary. If a
 one-second window is still saturated, ingestion fails without advancing its
 cursor rather than silently accepting incomplete data.
+
+The `afad-v3` persistence path loads existing source hashes once, then writes
+events and revisions with JSON-backed transactions of up to 1,000 events. Long
+runs renew their D1 lease, a replaced lease fences the old worker before it can
+write, and a new owner marks abandoned `running` records as failed. The source
+health audit includes the number of database write batches used by each run.
 
 ## Requirements
 

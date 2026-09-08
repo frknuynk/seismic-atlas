@@ -4,15 +4,15 @@ export const SourceCodeSchema = z.enum(['AFAD', 'USGS', 'EMSC', 'ISC', 'GCMT']);
 
 export const NormalizedSourceEventSchema = z.object({
   source: SourceCodeSchema,
-  sourceEventId: z.string().min(1),
+  sourceEventId: z.string().min(1).max(128),
   originTime: z.iso.datetime({ offset: true }),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   depthKm: z.number().nonnegative().nullable(),
   magnitude: z.number().nullable(),
-  magnitudeType: z.string().min(1).nullable(),
-  placeRaw: z.string().nullable(),
-  sourceStatus: z.string().nullable(),
+  magnitudeType: z.string().min(1).max(32).nullable(),
+  placeRaw: z.string().max(1_000).nullable(),
+  sourceStatus: z.string().max(32).nullable(),
   sourceUpdatedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 
@@ -112,6 +112,7 @@ export const SourceHealthEntrySchema = z.object({
       durationMs: z.number().int().nonnegative().nullable(),
       attempts: z.number().int().nonnegative(),
       splits: z.number().int().nonnegative(),
+      writeBatches: z.number().int().nonnegative(),
       fetched: z.number().int().nonnegative(),
       accepted: z.number().int().nonnegative(),
       rejected: z.number().int().nonnegative(),
@@ -153,7 +154,7 @@ export const ServiceHealthSchema = z.object({
   service: z.literal('seismic-atlas-api'),
   status: z.literal('ok'),
   phase: z.literal(1),
-  version: z.literal('0.4.0-alpha.0'),
+  version: z.literal('0.4.0-alpha.1'),
   databaseBinding: z.literal('DB'),
   timestamp: z.iso.datetime({ offset: true }),
 });

@@ -50,7 +50,7 @@ export function EventDetailSheet({
     <Sheet open={eventId !== null} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-[92vw] overflow-y-auto sm:max-w-md"
+        className="atlas-native-scrollbar w-[92vw] overflow-y-auto sm:max-w-md"
       >
         <SheetHeader className="border-b pr-12">
           <div className="mb-2 flex items-center gap-2">

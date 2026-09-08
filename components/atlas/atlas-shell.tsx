@@ -22,6 +22,7 @@ import { EventTimeline } from '@/components/atlas/event-timeline';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sheet,
   SheetContent,
@@ -317,95 +318,98 @@ export function AtlasShell({
             />
           </div>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-            <LayerControls
-              controlId="earthquake-layer-desktop"
-              eventsVisible={eventsVisible}
-              faultsVisible={faultsVisible}
-              faultOpacity={faultOpacity}
-              eventCount={selectedEvents.length}
-              onEventsVisibleChange={setEventsVisible}
-              onFaultsVisibleChange={setFaultsVisible}
-              onFaultOpacityChange={setFaultOpacity}
-            />
+          <ScrollArea className="atlas-scroll-area min-h-0 flex-1">
+            <div className="space-y-5 p-4 pr-5">
+              <LayerControls
+                controlId="earthquake-layer-desktop"
+                eventsVisible={eventsVisible}
+                faultsVisible={faultsVisible}
+                faultOpacity={faultOpacity}
+                eventCount={selectedEvents.length}
+                onEventsVisibleChange={setEventsVisible}
+                onFaultsVisibleChange={setFaultsVisible}
+                onFaultOpacityChange={setFaultOpacity}
+              />
 
-            <section aria-labelledby="recent-title">
-              <div className="mb-2 flex items-center justify-between">
-                <h2
-                  id="recent-title"
-                  className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
-                >
-                  Latest in view
-                </h2>
-                <Button
-                  type="button"
-                  size="icon-sm"
-                  variant="ghost"
-                  onClick={refresh}
-                  aria-label="Refresh stored earthquake catalog"
-                >
-                  <RefreshCw className="size-3.5" aria-hidden="true" />
-                </Button>
-              </div>
-              <div className="space-y-1.5">
-                {selectedEvents.slice(0, 12).map((event) => (
-                  <button
-                    key={event.id}
-                    type="button"
-                    onClick={() => setSelectedEventId(event.id)}
-                    className="flex w-full items-center gap-3 rounded-md border bg-card/45 p-2.5 text-left transition hover:border-primary/40 hover:bg-card"
+              <section aria-labelledby="recent-title">
+                <div className="mb-2 flex items-center justify-between">
+                  <h2
+                    id="recent-title"
+                    className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
                   >
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full border border-cyan-200/30 bg-cyan-300/10 font-mono text-sm font-semibold text-cyan-200">
-                      {event.magnitude?.toFixed(1) ?? '—'}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {event.place ?? 'Unknown location'}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {formatEventTime(event.originTime)} ·{' '}
-                        {event.depthKm === null
-                          ? 'depth unknown'
-                          : `${event.depthKm.toFixed(1)} km deep`}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-                {state === 'ready' && selectedEvents.length === 0 && (
-                  <p className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
-                    No stored events match this map view and filter combination.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <section aria-labelledby="source-title">
-              <h2
-                id="source-title"
-                className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
-              >
-                <Database className="size-4" aria-hidden="true" />
-                Source health
-              </h2>
-              <div className="rounded-md border bg-card/55 p-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <span
-                    className={`size-2 rounded-full ${sourceStatusColor(health?.status)}`}
-                  />
-                  {sourceStatusLabel(health?.status)}
+                    Latest in view
+                  </h2>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={refresh}
+                    aria-label="Refresh stored earthquake catalog"
+                  >
+                    <RefreshCw className="size-3.5" aria-hidden="true" />
+                  </Button>
                 </div>
-                <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-                  {sourceFreshness(health?.lastSuccessAt)}. Stored results
-                  remain available during upstream interruptions.
-                </p>
-                {health?.lastRun && (
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {syncRunSummary(health.lastRun)}
+                <div className="space-y-1.5">
+                  {selectedEvents.slice(0, 12).map((event) => (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => setSelectedEventId(event.id)}
+                      className="flex w-full items-center gap-3 rounded-md border bg-card/45 p-2.5 text-left transition hover:border-primary/40 hover:bg-card"
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full border border-cyan-200/30 bg-cyan-300/10 font-mono text-sm font-semibold text-cyan-200">
+                        {event.magnitude?.toFixed(1) ?? '—'}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {event.place ?? 'Unknown location'}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {formatEventTime(event.originTime)} ·{' '}
+                          {event.depthKm === null
+                            ? 'depth unknown'
+                            : `${event.depthKm.toFixed(1)} km deep`}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                  {state === 'ready' && selectedEvents.length === 0 && (
+                    <p className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">
+                      No stored events match this map view and filter
+                      combination.
+                    </p>
+                  )}
+                </div>
+              </section>
+
+              <section aria-labelledby="source-title">
+                <h2
+                  id="source-title"
+                  className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                >
+                  <Database className="size-4" aria-hidden="true" />
+                  Source health
+                </h2>
+                <div className="rounded-md border bg-card/55 p-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span
+                      className={`size-2 rounded-full ${sourceStatusColor(health?.status)}`}
+                    />
+                    {sourceStatusLabel(health?.status)}
+                  </div>
+                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                    {sourceFreshness(health?.lastSuccessAt)}. Stored results
+                    remain available during upstream interruptions.
                   </p>
-                )}
-              </div>
-            </section>
-          </div>
+                  {health?.lastRun && (
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {syncRunSummary(health.lastRun)}
+                    </p>
+                  )}
+                </div>
+              </section>
+            </div>
+          </ScrollArea>
         </aside>
 
         <div className="relative min-w-0 flex-1">
@@ -429,7 +433,10 @@ export function AtlasShell({
                 <SlidersHorizontal className="size-4" aria-hidden="true" />
                 Filters
               </SheetTrigger>
-              <SheetContent side="left" className="w-[88vw] overflow-y-auto">
+              <SheetContent
+                side="left"
+                className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
+              >
                 <SheetHeader>
                   <SheetTitle>Filter earthquakes</SheetTitle>
                   <SheetDescription>
@@ -451,7 +458,10 @@ export function AtlasShell({
                 <Layers3 className="size-4" aria-hidden="true" />
                 Layers
               </SheetTrigger>
-              <SheetContent side="left" className="w-[88vw] overflow-y-auto">
+              <SheetContent
+                side="left"
+                className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
+              >
                 <SheetHeader>
                   <SheetTitle>Map layers</SheetTitle>
                   <SheetDescription>

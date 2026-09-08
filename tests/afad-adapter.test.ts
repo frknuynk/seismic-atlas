@@ -93,6 +93,7 @@ describe('AFAD adapter', () => {
       start: string | null;
       end: string | null;
     }> = [];
+    const progress: Array<{ attempts: number; splits: number }> = [];
     let request = 0;
     const fetcher = async (input: RequestInfo | URL) => {
       request += 1;
@@ -130,7 +131,12 @@ describe('AFAD adapter', () => {
       new Date('2026-09-01T00:00:00.000Z'),
       new Date('2026-09-03T00:00:00.000Z'),
       fetcher as typeof fetch,
-      { responseLimit: 3 },
+      {
+        beforeRequest: async (current) => {
+          progress.push(current);
+        },
+        responseLimit: 3,
+      },
     );
 
     expect(requestedWindows).toEqual([
@@ -146,6 +152,11 @@ describe('AFAD adapter', () => {
       duplicatesDropped: 1,
     });
     expect(result.events).toHaveLength(3);
+    expect(progress).toEqual([
+      { attempts: 0, splits: 0 },
+      { attempts: 1, splits: 1 },
+      { attempts: 2, splits: 1 },
+    ]);
     expect(
       result.events.find((event) => event.sourceEventId === 'boundary'),
     ).toMatchObject({ magnitude: 2.4, sourceStatus: 'updated' });

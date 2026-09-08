@@ -12,7 +12,7 @@ api.get('/api/v1/health', (context) => {
     service: 'seismic-atlas-api',
     status: 'ok',
     phase: 1,
-    version: '0.4.0-alpha.0',
+    version: '0.4.0-alpha.1',
     databaseBinding: 'DB',
     timestamp: new Date().toISOString(),
   });

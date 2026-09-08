@@ -39,7 +39,13 @@ export type AfadRejectedRecord = {
   rawJson: string;
 };
 
-type AfadFetchOptions = {
+export type AfadFetchProgress = {
+  attempts: number;
+  splits: number;
+};
+
+export type AfadFetchOptions = {
+  beforeRequest?: (progress: AfadFetchProgress) => Promise<void>;
   maxAttempts?: number;
   maxSplits?: number;
   responseLimit?: number;
@@ -159,7 +165,10 @@ async function fetchRawAfadWindow(
   fetcher: typeof fetch,
   options: Required<
     Pick<AfadFetchOptions, 'maxAttempts' | 'responseLimit' | 'timeoutMs'>
-  > & { sleep: NonNullable<AfadFetchOptions['sleep']> },
+  > & {
+    beforeRequest?: AfadFetchOptions['beforeRequest'];
+    sleep: NonNullable<AfadFetchOptions['sleep']>;
+  },
   metrics: FetchMetrics,
 ) {
   const url = afadWindowUrl(window.start, window.end, options.responseLimit);
@@ -167,6 +176,7 @@ async function fetchRawAfadWindow(
   let windowAttempts = 0;
 
   while (windowAttempts < options.maxAttempts) {
+    await options.beforeRequest?.({ ...metrics });
     windowAttempts += 1;
     metrics.attempts += 1;
     try {
@@ -264,6 +274,7 @@ export async function fetchAfadWindowWithDiagnostics(
   }
 
   const fetchOptions = {
+    beforeRequest: options.beforeRequest,
     maxAttempts: Math.min(5, Math.max(1, options.maxAttempts ?? 3)),
     maxSplits: Math.min(
       MAX_WINDOW_SPLITS,
