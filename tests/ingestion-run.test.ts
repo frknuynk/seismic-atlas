@@ -86,6 +86,60 @@ function sourceResult(events = [sourceEvent]): AfadWindowResult {
 const startedAt = Date.parse('2026-09-08T12:05:00.000Z');
 
 describe('AFAD ingestion run control', () => {
+  it('audits backfill without moving the scheduled ingestion cursor', async () => {
+    const database = ingestionDatabase();
+    let fetchedWindow: [string, string] | null = null;
+
+    const result = await runAfadSync(database.db, {
+      now: new Date(startedAt),
+      clock: () => startedAt + 1_000,
+      backfillWindow: {
+        start: new Date('2026-09-01T00:00:00.000Z'),
+        end: new Date('2026-09-02T00:00:00.000Z'),
+      },
+      fetchWindow: async (start, end) => {
+        fetchedWindow = [start.toISOString(), end.toISOString()];
+        return sourceResult();
+      },
+      persistEvents: async () => ({
+        inserted: 1,
+        updated: 0,
+        unchanged: 0,
+        batches: 1,
+      }),
+    });
+
+    expect(result).toMatchObject({
+      status: 'succeeded',
+      windowKind: 'backfill',
+      windowStart: '2026-09-01T00:00:00.000Z',
+      windowEnd: '2026-09-02T00:00:00.000Z',
+    });
+    expect(fetchedWindow).toEqual([
+      '2026-09-01T00:00:00.000Z',
+      '2026-09-02T00:00:00.000Z',
+    ]);
+    expect(
+      database.batches
+        .flat()
+        .some((statement) =>
+          statement.sql.includes('INSERT INTO ingestion_state'),
+        ),
+    ).toBe(false);
+    expect(
+      database.batches
+        .flat()
+        .some((statement) =>
+          statement.sql.includes('INSERT INTO source_health'),
+        ),
+    ).toBe(false);
+    expect(
+      database.runStatements.find((statement) =>
+        statement.sql.includes('INSERT INTO ingestion_runs'),
+      )?.bindings[3],
+    ).toBe('backfill');
+  });
+
   it('does not advance the cursor when persistence fails', async () => {
     const database = ingestionDatabase();
     const failure = new Error('simulated persistence failure');

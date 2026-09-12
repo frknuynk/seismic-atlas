@@ -48,12 +48,17 @@ describe('catalog exports', () => {
       filters: { rangeHours: 168, minMagnitude: 0, maxDepth: 300 },
       bounds: { minLat: 38, maxLat: 40, minLon: 34, maxLon: 36 },
       timelineWindow: null,
+      completeness: { complete: true, loaded: 1, total: 1, reason: null },
       generatedAt: '2026-09-09T00:00:00.000Z',
     });
 
     expect(manifest).toMatchObject({
       schema: 'seismic-atlas-analysis-manifest/v1',
-      catalog: { eventCount: 1, eventIds: ['AFAD:42'] },
+      catalog: {
+        eventCount: 1,
+        eventIds: ['AFAD:42'],
+        completeness: { complete: true, loaded: 1, total: 1 },
+      },
       selection: { region: { type: 'bbox', minLatitude: 38 } },
       methods: {
         frequencyMagnitude: {

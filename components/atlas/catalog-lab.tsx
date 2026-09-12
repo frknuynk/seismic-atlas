@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Braces,
+  CheckCircle2,
   Download,
   FileJson2,
   FlaskConical,
@@ -39,6 +40,7 @@ import type {
   TimelineWindow,
 } from '@/shared/atlas-state';
 import type { CatalogEvent } from '@/shared/schemas';
+import type { CatalogCompleteness } from '@/lib/api/catalog-pages';
 
 const countChartConfig = {
   count: { label: 'Events', color: 'var(--primary)' },
@@ -72,6 +74,7 @@ type CatalogLabProps = {
   filters: AtlasFilters;
   bounds: MapBounds | null;
   timelineWindow: TimelineWindow | null;
+  completeness: CatalogCompleteness;
 };
 
 export function CatalogLab({
@@ -79,14 +82,15 @@ export function CatalogLab({
   filters,
   bounds,
   timelineWindow,
+  completeness,
 }: CatalogLabProps) {
-  const state = useCatalogAnalysis(events);
+  const state = useCatalogAnalysis(events, completeness.complete);
   const analysis = state.analysis;
   const range =
     analysis?.firstEventTime && analysis.lastEventTime
       ? `${dateTimeFormat.format(new Date(analysis.firstEventTime))} – ${dateTimeFormat.format(new Date(analysis.lastEventTime))}`
       : 'No catalog coverage';
-  const exportContext = { filters, bounds, timelineWindow };
+  const exportContext = { filters, bounds, timelineWindow, completeness };
   const fileStem = `seismic-atlas-afad-${new Date().toISOString().slice(0, 10)}`;
 
   return (
@@ -104,6 +108,13 @@ export function CatalogLab({
               Catalog Lab
             </h2>
             <Badge variant="outline">Viewport subset</Badge>
+            {completeness.complete && completeness.total !== null && (
+              <Badge className="border-emerald-300/25 bg-emerald-300/10 text-emerald-200">
+                <CheckCircle2 className="size-3" aria-hidden="true" />
+                Complete {completeness.loaded.toLocaleString()}/
+                {completeness.total.toLocaleString()}
+              </Badge>
+            )}
             {state.status === 'refreshing' && (
               <Badge variant="secondary" aria-live="polite">
                 Updating…
@@ -177,6 +188,25 @@ export function CatalogLab({
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
             Computing this catalog subset in your browser…
+          </div>
+        </div>
+      )}
+
+      {state.status === 'blocked' && (
+        <div className="grid min-h-0 flex-1 place-items-center px-6 text-center">
+          <div className="max-w-xl rounded-lg border border-amber-300/25 bg-amber-300/[0.06] p-4">
+            <AlertTriangle
+              className="mx-auto size-5 text-amber-300"
+              aria-hidden="true"
+            />
+            <h3 className="mt-2 font-medium">Catalog completeness required</h3>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {completeness.reason === 'loading'
+                ? 'Loading and verifying every catalog page before analysis.'
+                : completeness.reason === 'ingestion_running'
+                  ? 'AFAD synchronization is currently writing a new catalog generation. Analysis will unlock after a stable refresh.'
+                  : `${completeness.loaded.toLocaleString()} of ${completeness.total?.toLocaleString() ?? 'an unknown number of'} matching events were loaded. Analysis and exports are disabled so partial data cannot be mistaken for a complete catalog.`}
+            </p>
           </div>
         </div>
       )}

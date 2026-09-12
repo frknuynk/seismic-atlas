@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EventDetailSheet } from '@/components/atlas/event-detail-sheet';
 import { EventSearch } from '@/components/atlas/event-search';
 import { CatalogLab } from '@/components/atlas/catalog-lab';
+import { CatalogIntegrity } from '@/components/atlas/catalog-integrity';
 import {
   FilterControls,
   LayerControls,
@@ -38,6 +39,7 @@ import {
 import { useEventDetail } from '@/hooks/use-event-detail';
 import { useNearestFault } from '@/hooks/use-nearest-fault';
 import { useRecentEvents } from '@/hooks/use-recent-events';
+import { useCatalogQuality } from '@/hooks/use-catalog-quality';
 import { eventInTimelineWindow } from '@/lib/timeline';
 import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
 import type { SourceHealthResponse } from '@/shared/schemas';
@@ -190,7 +192,15 @@ export function AtlasShell({
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'ready'>(
     'idle',
   );
-  const { events, health, state, refresh } = useRecentEvents(filters, bounds);
+  const { events, health, state, completeness, refresh } = useRecentEvents(
+    filters,
+    bounds,
+  );
+  const {
+    quality,
+    state: qualityState,
+    refresh: refreshQuality,
+  } = useCatalogQuality();
   const { detail, loading: detailLoading } = useEventDetail(selectedEventId);
   const selectedEvents = useMemo(
     () =>
@@ -435,6 +445,12 @@ export function AtlasShell({
                   )}
                 </div>
               </section>
+
+              <CatalogIntegrity
+                quality={quality}
+                state={qualityState}
+                onRefresh={refreshQuality}
+              />
             </div>
           </ScrollArea>
         </aside>
@@ -517,6 +533,7 @@ export function AtlasShell({
               filters={filters}
               bounds={bounds}
               timelineWindow={selectedTimeWindow}
+              completeness={completeness}
             />
           ) : (
             <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">

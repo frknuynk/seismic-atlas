@@ -29,7 +29,13 @@ export const EventQuerySchema = z
     minDepth: z.coerce.number().nonnegative().optional(),
     maxDepth: z.coerce.number().nonnegative().optional(),
     source: SourceCodeSchema.optional(),
-    limit: z.coerce.number().int().positive().max(25_000).default(10_000),
+    limit: z.coerce.number().int().positive().max(2_500).default(1_000),
+    cursor: z
+      .string()
+      .min(1)
+      .max(1_024)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
   })
   .refine((value) => Date.parse(value.start) <= Date.parse(value.end), {
     message: 'start must be before or equal to end',
@@ -64,6 +70,38 @@ export const EventQuerySchema = z
     { message: 'minDepth must not exceed maxDepth', path: ['minDepth'] },
   );
 
+const AfadBackfillRequestSchema = z
+  .object({
+    mode: z.literal('backfill'),
+    start: z.iso.datetime({ offset: true }),
+    end: z.iso.datetime({ offset: true }),
+  })
+  .refine((value) => Date.parse(value.start) < Date.parse(value.end), {
+    message: 'start must be before end',
+    path: ['start'],
+  })
+  .refine(
+    (value) =>
+      Date.parse(value.end) - Date.parse(value.start) <= 24 * 60 * 60_000,
+    {
+      message: 'backfill windows may not exceed 24 hours',
+      path: ['end'],
+    },
+  );
+
+export const AfadSyncRequestSchema = z.union([
+  z.object({
+    mode: z.literal('sync'),
+    windowMinutes: z
+      .number()
+      .int()
+      .min(15)
+      .max(7 * 24 * 60)
+      .optional(),
+  }),
+  AfadBackfillRequestSchema,
+]);
+
 export const CatalogEventSchema = z.object({
   id: z.string().min(1),
   source: SourceCodeSchema,
@@ -81,6 +119,11 @@ export const CatalogEventSchema = z.object({
 export const EventsResponseSchema = z.object({
   meta: z.object({
     count: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+    returned: z.number().int().nonnegative(),
+    hasMore: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: z.string().nullable(),
     source: z.array(SourceCodeSchema),
     freshness: z.object({
       AFAD: z.iso.datetime({ offset: true }).optional(),
@@ -103,7 +146,13 @@ export const SourceHealthEntrySchema = z.object({
     .object({
       id: z.string().min(1),
       trigger: z.enum(['manual', 'scheduled']),
-      windowKind: z.enum(['manual', 'bootstrap', 'incremental', 'reconcile']),
+      windowKind: z.enum([
+        'manual',
+        'bootstrap',
+        'incremental',
+        'reconcile',
+        'backfill',
+      ]),
       windowStart: z.iso.datetime({ offset: true }),
       windowEnd: z.iso.datetime({ offset: true }),
       status: z.enum(['running', 'succeeded', 'failed']),
@@ -159,6 +208,50 @@ export const ServiceHealthSchema = z.object({
   timestamp: z.iso.datetime({ offset: true }),
 });
 
+export const CatalogQualityResponseSchema = z.object({
+  generatedAt: z.iso.datetime({ offset: true }),
+  source: z.literal('AFAD'),
+  status: z.enum(['healthy', 'warning', 'critical']),
+  coverage: z.object({
+    firstEventTime: z.iso.datetime({ offset: true }).nullable(),
+    lastEventTime: z.iso.datetime({ offset: true }).nullable(),
+  }),
+  counts: z.object({
+    total: z.number().int().nonnegative(),
+    revisedEvents: z.number().int().nonnegative(),
+    missingMagnitude: z.number().int().nonnegative(),
+    missingDepth: z.number().int().nonnegative(),
+    missingMagnitudeType: z.number().int().nonnegative(),
+    missingPlace: z.number().int().nonnegative(),
+    invalidCoordinates: z.number().int().nonnegative(),
+    negativeDepth: z.number().int().nonnegative(),
+    extremeDepth: z.number().int().nonnegative(),
+    unusualMagnitude: z.number().int().nonnegative(),
+    duplicateSourceIds: z.number().int().nonnegative(),
+  }),
+  coveragePercent: z.object({
+    magnitude: z.number().min(0).max(100),
+    depth: z.number().min(0).max(100),
+    magnitudeType: z.number().min(0).max(100),
+    place: z.number().min(0).max(100),
+  }),
+  ingestionLast7Days: z.object({
+    runs: z.number().int().nonnegative(),
+    fetched: z.number().int().nonnegative(),
+    accepted: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    duplicatesDropped: z.number().int().nonnegative(),
+  }),
+  checks: z.array(
+    z.object({
+      code: z.string().min(1),
+      status: z.enum(['pass', 'warning', 'fail']),
+      affected: z.number().int().nonnegative(),
+      message: z.string().min(1),
+    }),
+  ),
+});
+
 export type NormalizedSourceEvent = z.infer<typeof NormalizedSourceEventSchema>;
 export type EventQuery = z.infer<typeof EventQuerySchema>;
 export type CatalogEvent = z.infer<typeof CatalogEventSchema>;
@@ -167,3 +260,7 @@ export type SourceHealthResponse = z.infer<typeof SourceHealthResponseSchema>;
 export type EventRevision = z.infer<typeof EventRevisionSchema>;
 export type EventDetail = z.infer<typeof EventDetailSchema>;
 export type ServiceHealth = z.infer<typeof ServiceHealthSchema>;
+export type AfadSyncRequest = z.infer<typeof AfadSyncRequestSchema>;
+export type CatalogQualityResponse = z.infer<
+  typeof CatalogQualityResponseSchema
+>;

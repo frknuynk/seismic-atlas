@@ -8,11 +8,13 @@ import type {
   TimelineWindow,
 } from '@/shared/atlas-state';
 import type { CatalogEvent } from '@/shared/schemas';
+import type { CatalogCompleteness } from '@/lib/api/catalog-pages';
 
 export type CatalogExportContext = {
   filters: AtlasFilters;
   bounds: MapBounds | null;
   timelineWindow: TimelineWindow | null;
+  completeness: CatalogCompleteness;
   generatedAt?: string;
 };
 
@@ -93,6 +95,7 @@ export function analysisManifest(
     catalog: {
       sources: ['AFAD'],
       eventCount: events.length,
+      completeness: context.completeness,
       eventIds: events.map((event) => event.id),
       firstEventTime: analysis.firstEventTime,
       lastEventTime: analysis.lastEventTime,

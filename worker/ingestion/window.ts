@@ -3,17 +3,50 @@ const OVERLAP_MS = 5 * 60_000;
 const MAX_GAP_RECOVERY_MS = 24 * 60 * 60_000;
 const FULL_RECONCILE_MS = 7 * 24 * 60 * 60_000;
 const RECONCILE_INTERVAL_MS = 24 * 60 * 60_000;
+export const MAX_BACKFILL_WINDOW_MS = 24 * 60 * 60_000;
 
 export type AfadWindowKind =
   | 'manual'
   | 'bootstrap'
   | 'incremental'
-  | 'reconcile';
+  | 'reconcile'
+  | 'backfill';
 
 export type AfadIngestionCursor = {
   lastSuccessWindowEnd: number | null;
   lastFullReconcileAt: number | null;
 } | null;
+
+export function planAfadBackfillWindow({
+  start,
+  end,
+  now,
+}: {
+  start: Date;
+  end: Date;
+  now: Date;
+}) {
+  const startMs = start.valueOf();
+  const endMs = end.valueOf();
+  if (
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    startMs >= endMs ||
+    endMs > now.valueOf() ||
+    endMs - startMs > MAX_BACKFILL_WINDOW_MS
+  ) {
+    throw new RangeError(
+      'Backfill requires a past-facing window of at most 24 hours.',
+    );
+  }
+
+  return {
+    start,
+    end,
+    kind: 'backfill' as const,
+    fullReconcile: false,
+  };
+}
 
 export function planAfadSyncWindow({
   now,

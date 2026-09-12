@@ -1,19 +1,35 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type {
-  CatalogEvent,
-  EventsResponse,
-  SourceHealthResponse,
+import {
+  SourceHealthResponseSchema,
+  type CatalogEvent,
+  type SourceHealthResponse,
 } from '@/shared/schemas';
 import type { AtlasFilters, MapBounds } from '@/shared/atlas-state';
+import {
+  fetchCatalogPages,
+  type CatalogCompleteness,
+  verifyCatalogGeneration,
+} from '@/lib/api/catalog-pages';
 
 type CatalogState = 'loading' | 'ready' | 'error';
 
-export function useRecentEvents(filters: AtlasFilters, bounds: MapBounds | null) {
+export function useRecentEvents(
+  filters: AtlasFilters,
+  bounds: MapBounds | null,
+) {
   const [events, setEvents] = useState<CatalogEvent[]>([]);
-  const [health, setHealth] = useState<SourceHealthResponse['AFAD'] | null>(null);
+  const [health, setHealth] = useState<SourceHealthResponse['AFAD'] | null>(
+    null,
+  );
   const [state, setState] = useState<CatalogState>('loading');
+  const [completeness, setCompleteness] = useState<CatalogCompleteness>({
+    complete: false,
+    loaded: 0,
+    total: null,
+    reason: 'loading',
+  });
   const [refreshKey, setRefreshKey] = useState(0);
 
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
@@ -30,7 +46,6 @@ export function useRecentEvents(filters: AtlasFilters, bounds: MapBounds | null)
           start: start.toISOString(),
           end: end.toISOString(),
           source: 'AFAD',
-          limit: '2500',
           minMag: String(filters.minMagnitude),
           maxDepth: String(filters.maxDepth),
         });
@@ -42,22 +57,40 @@ export function useRecentEvents(filters: AtlasFilters, bounds: MapBounds | null)
           params.set('maxLon', bounds.maxLon.toFixed(3));
         }
 
-        const [eventsResponse, healthResponse] = await Promise.all([
-          fetch(`/api/v1/events?${params}`, { signal: controller.signal }),
-          fetch('/api/v1/source-health', { signal: controller.signal }),
-        ]);
+        const loadHealth = async () => {
+          const response = await fetch('/api/v1/source-health', {
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error('Catalog source health could not be loaded.');
+          }
+          return SourceHealthResponseSchema.parse(await response.json());
+        };
+        const healthBefore = await loadHealth();
+        const catalog = await fetchCatalogPages(params, {
+          signal: controller.signal,
+        });
+        const healthPayload: SourceHealthResponse = await loadHealth();
+        const verifiedCompleteness = verifyCatalogGeneration(
+          catalog.completeness,
+          healthBefore.AFAD,
+          healthPayload.AFAD,
+        );
 
-        if (!eventsResponse.ok || !healthResponse.ok) {
-          throw new Error('The stored catalog could not be loaded.');
-        }
-
-        const eventPayload = (await eventsResponse.json()) as EventsResponse;
-        const healthPayload = (await healthResponse.json()) as SourceHealthResponse;
-        setEvents(eventPayload.events);
+        setEvents(catalog.events);
+        setCompleteness(verifiedCompleteness);
         setHealth(healthPayload.AFAD);
         setState('ready');
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') setState('error');
+        if ((error as Error).name !== 'AbortError') {
+          setState('error');
+          setCompleteness((current) => ({
+            complete: false,
+            loaded: current.loaded,
+            total: current.total,
+            reason: 'request_failed',
+          }));
+        }
       }
     }
 
@@ -79,5 +112,5 @@ export function useRecentEvents(filters: AtlasFilters, bounds: MapBounds | null)
     refreshKey,
   ]);
 
-  return { events, health, state, refresh };
+  return { events, health, state, completeness, refresh };
 }

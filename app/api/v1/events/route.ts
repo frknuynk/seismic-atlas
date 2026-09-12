@@ -1,6 +1,6 @@
 import { getD1 } from '@/db';
 import { EventQuerySchema, EventsResponseSchema } from '@/shared/schemas';
-import { queryEvents } from '@/worker/catalog';
+import { InvalidCatalogCursorError, queryEvents } from '@/worker/catalog';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -31,6 +31,17 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    if (error instanceof InvalidCatalogCursorError) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_EVENT_CURSOR',
+            message: 'Restart the catalog query without the supplied cursor.',
+          },
+        },
+        { status: 400 },
+      );
+    }
     console.error('Event query failed', error);
     return Response.json(
       {

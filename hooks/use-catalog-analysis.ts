@@ -8,19 +8,26 @@ import {
 import type { CatalogEvent } from '@/shared/schemas';
 
 type AnalysisState =
+  | { status: 'blocked'; analysis: null }
   | { status: 'loading'; analysis: null }
   | { status: 'ready'; analysis: CatalogAnalysis }
   | { status: 'refreshing'; analysis: CatalogAnalysis }
   | { status: 'error'; analysis: CatalogAnalysis | null };
 
-export function useCatalogAnalysis(events: CatalogEvent[]) {
+export function useCatalogAnalysis(events: CatalogEvent[], enabled = true) {
   const analysisKey = useMemo(() => catalogAnalysisKey(events), [events]);
-  const [state, setState] = useState<AnalysisState>({
-    status: 'loading',
-    analysis: null,
-  });
+  const [state, setState] = useState<AnalysisState>(() =>
+    enabled
+      ? { status: 'loading', analysis: null }
+      : { status: 'blocked', analysis: null },
+  );
 
   useEffect(() => {
+    if (!enabled) {
+      setState({ status: 'blocked', analysis: null });
+      return;
+    }
+
     const requestId = crypto.randomUUID();
     const worker = new Worker(
       new URL('../workers/catalog-analysis.worker.ts', import.meta.url),
@@ -49,7 +56,7 @@ export function useCatalogAnalysis(events: CatalogEvent[]) {
     worker.postMessage({ requestId, events });
 
     return () => worker.terminate();
-  }, [analysisKey]);
+  }, [analysisKey, enabled]);
 
   return state;
 }

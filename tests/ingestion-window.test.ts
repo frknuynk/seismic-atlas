@@ -1,9 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { planAfadSyncWindow } from '@/worker/ingestion/window';
+import {
+  planAfadBackfillWindow,
+  planAfadSyncWindow,
+} from '@/worker/ingestion/window';
 
 const now = new Date('2026-09-06T20:00:00.000Z');
 
 describe('AFAD synchronization window planning', () => {
+  it('plans an explicit historical window without marking reconciliation', () => {
+    const window = planAfadBackfillWindow({
+      start: new Date('2026-09-01T00:00:00.000Z'),
+      end: new Date('2026-09-02T00:00:00.000Z'),
+      now,
+    });
+
+    expect(window).toMatchObject({
+      kind: 'backfill',
+      fullReconcile: false,
+    });
+  });
+
+  it('rejects future and oversized historical windows', () => {
+    expect(() =>
+      planAfadBackfillWindow({
+        start: new Date('2026-09-01T00:00:00.000Z'),
+        end: new Date('2026-09-02T00:00:01.000Z'),
+        now,
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      planAfadBackfillWindow({
+        start: new Date('2026-09-06T19:00:00.000Z'),
+        end: new Date('2026-09-06T21:00:00.000Z'),
+        now,
+      }),
+    ).toThrow(RangeError);
+  });
+
   it('uses a seven-day window for manual reconciliation', () => {
     const window = planAfadSyncWindow({
       now,

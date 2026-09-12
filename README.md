@@ -41,6 +41,15 @@ present a b-value before catalog completeness is estimated, and exports the
 selection as CSV, GeoJSON, or a reproducible methods manifest. Lab mode is part
 of the shareable URL and does not add server-side analysis cost.
 
+Catalog reads are keyset-paginated in pages of at most 2,500 records. Each API
+response reports the total match count, returned count, continuation state, and
+an opaque cursor. The browser exhausts every page up to a 25,000-event safety
+cap and records the verified count in analysis manifests. Catalog Lab disables
+analysis and exports if a page is missing, a cursor repeats, counts change while
+paging, the browser cap is reached, or AFAD ingestion overlaps the read. This
+prevents a partial catalog from silently appearing as a complete scientific
+selection.
+
 ## Requirements
 
 - Node.js 22.13 or newer
@@ -67,6 +76,19 @@ curl -X POST http://localhost:3000/api/v1/internal/sync/afad
 The production route requires `AFAD_SYNC_TOKEN`. Scheduled ingestion uses an
 overlapping cursor window of at least 15 minutes and never removes previously
 stored events when the upstream service is unavailable.
+
+Run an authorized historical backfill in daily chunks with:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/internal/sync/afad \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"backfill","start":"2026-09-01T00:00:00.000Z","end":"2026-09-02T00:00:00.000Z"}'
+```
+
+Backfill windows are limited to 24 hours, use the same saturation-safe source
+adapter and D1 lease as normal ingestion, and never move the scheduled cursor
+backward. Catalog-wide integrity and field coverage are available from
+`/api/v1/data-quality` and in the Catalog integrity workspace card.
 
 Successful synchronization responses include a run ID, attempt and saturation
 split counts, accepted and rejected row counts, duplicate count, insert/update

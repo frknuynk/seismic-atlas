@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AfadSyncRequestSchema,
   EventQuerySchema,
   NormalizedSourceEventSchema,
 } from '@/shared/schemas';
@@ -42,6 +43,28 @@ describe('NormalizedSourceEventSchema', () => {
   });
 });
 
+describe('AfadSyncRequestSchema', () => {
+  it('accepts bounded daily backfill windows', () => {
+    expect(
+      AfadSyncRequestSchema.parse({
+        mode: 'backfill',
+        start: '2026-09-01T00:00:00.000Z',
+        end: '2026-09-02T00:00:00.000Z',
+      }),
+    ).toMatchObject({ mode: 'backfill' });
+  });
+
+  it('rejects backfill windows longer than one day', () => {
+    expect(
+      AfadSyncRequestSchema.safeParse({
+        mode: 'backfill',
+        start: '2026-09-01T00:00:00.000Z',
+        end: '2026-09-02T00:00:01.000Z',
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe('EventQuerySchema', () => {
   it('requires a forward, bounded interval', () => {
     const result = EventQuerySchema.safeParse({
@@ -52,13 +75,27 @@ describe('EventQuerySchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('applies a quota-safe default limit', () => {
+  it('applies a quota-safe page size and validates opaque cursors', () => {
     const query = EventQuerySchema.parse({
       start: '2026-09-05T00:00:00.000Z',
       end: '2026-09-06T00:00:00.000Z',
     });
 
-    expect(query.limit).toBe(10_000);
+    expect(query.limit).toBe(1_000);
+    expect(
+      EventQuerySchema.safeParse({
+        start: query.start,
+        end: query.end,
+        limit: 2_501,
+      }).success,
+    ).toBe(false);
+    expect(
+      EventQuerySchema.safeParse({
+        start: query.start,
+        end: query.end,
+        cursor: 'not a cursor!',
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects inverted map and scientific filter ranges', () => {

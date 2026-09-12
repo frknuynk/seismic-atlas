@@ -6,6 +6,7 @@ import {
   type AfadWindowResult,
 } from '@/worker/sources/afad';
 import {
+  planAfadBackfillWindow,
   planAfadSyncWindow,
   type AfadIngestionCursor,
 } from '@/worker/ingestion/window';
@@ -27,6 +28,7 @@ type IngestionStateRow = {
 type RunAfadSyncOptions = {
   now?: Date;
   windowMinutes?: number;
+  backfillWindow?: { start: Date; end: Date };
   trigger?: 'manual' | 'scheduled';
   clock?: () => number;
   fetchWindow?: typeof fetchAfadWindowWithDiagnostics;
@@ -191,6 +193,12 @@ export async function runAfadSync(
   const trigger = options.trigger ?? 'manual';
   const fetchWindow = options.fetchWindow ?? fetchAfadWindowWithDiagnostics;
   const persistEvents = options.persistEvents ?? persistEventsInBatches;
+  const plannedBackfill = options.backfillWindow
+    ? planAfadBackfillWindow({
+        ...options.backfillWindow,
+        now,
+      })
+    : null;
   let leaseAcquired = false;
   let runRecorded = false;
   let committedWriteBatches = 0;
@@ -219,26 +227,30 @@ export async function runAfadSync(
 
     await recoverStaleRuns(db, runId, startedAt);
 
-    const state = await db
-      .prepare(
-        `SELECT last_success_window_end, last_full_reconcile_at
-        FROM ingestion_state
-        WHERE source = ?`,
-      )
-      .bind(SOURCE)
-      .first<IngestionStateRow>();
+    const state = plannedBackfill
+      ? null
+      : await db
+          .prepare(
+            `SELECT last_success_window_end, last_full_reconcile_at
+            FROM ingestion_state
+            WHERE source = ?`,
+          )
+          .bind(SOURCE)
+          .first<IngestionStateRow>();
     const cursor: AfadIngestionCursor = state
       ? {
           lastSuccessWindowEnd: state.last_success_window_end,
           lastFullReconcileAt: state.last_full_reconcile_at,
         }
       : null;
-    const window = planAfadSyncWindow({
-      now,
-      trigger,
-      cursor,
-      requestedWindowMinutes: options.windowMinutes,
-    });
+    const window =
+      plannedBackfill ??
+      planAfadSyncWindow({
+        now,
+        trigger,
+        cursor,
+        requestedWindowMinutes: options.windowMinutes,
+      });
 
     await db
       .prepare(
@@ -291,40 +303,6 @@ export async function runAfadSync(
     const successStatements = [
       db
         .prepare(
-          `INSERT INTO source_health (
-            source, last_attempt_at, last_success_at, latest_event_time,
-            consecutive_failures, status
-          ) VALUES (?, ?, ?, ?, 0, 'ok')
-          ON CONFLICT(source) DO UPDATE SET
-            last_attempt_at = excluded.last_attempt_at,
-            last_success_at = excluded.last_success_at,
-            latest_event_time = COALESCE(excluded.latest_event_time, source_health.latest_event_time),
-            consecutive_failures = 0,
-            status = 'ok'`,
-        )
-        .bind(SOURCE, startedAt, completedAt, latestEventTime),
-      db
-        .prepare(
-          `INSERT INTO ingestion_state (
-            source, last_success_window_end, last_full_reconcile_at,
-            adapter_version
-          ) VALUES (?, ?, ?, ?)
-          ON CONFLICT(source) DO UPDATE SET
-            last_success_window_end = excluded.last_success_window_end,
-            last_full_reconcile_at = COALESCE(
-              excluded.last_full_reconcile_at,
-              ingestion_state.last_full_reconcile_at
-            ),
-            adapter_version = excluded.adapter_version`,
-        )
-        .bind(
-          SOURCE,
-          window.end.valueOf(),
-          window.fullReconcile ? completedAt : null,
-          ADAPTER_VERSION,
-        ),
-      db
-        .prepare(
           `UPDATE ingestion_runs SET
             status = 'succeeded', completed_at = ?, attempts = ?, splits = ?,
             write_batches = ?, fetched = ?, accepted = ?, rejected = ?,
@@ -346,6 +324,49 @@ export async function runAfadSync(
           runId,
         ),
     ];
+    if (window.kind !== 'backfill') {
+      successStatements.unshift(
+        db
+          .prepare(
+            `INSERT INTO source_health (
+              source, last_attempt_at, last_success_at, latest_event_time,
+              consecutive_failures, status
+            ) VALUES (?, ?, ?, ?, 0, 'ok')
+            ON CONFLICT(source) DO UPDATE SET
+              last_attempt_at = excluded.last_attempt_at,
+              last_success_at = excluded.last_success_at,
+              latest_event_time = CASE
+                WHEN excluded.latest_event_time IS NULL THEN source_health.latest_event_time
+                WHEN source_health.latest_event_time IS NULL THEN excluded.latest_event_time
+                WHEN excluded.latest_event_time > source_health.latest_event_time THEN excluded.latest_event_time
+                ELSE source_health.latest_event_time
+              END,
+              consecutive_failures = 0,
+              status = 'ok'`,
+          )
+          .bind(SOURCE, startedAt, completedAt, latestEventTime),
+        db
+          .prepare(
+            `INSERT INTO ingestion_state (
+              source, last_success_window_end, last_full_reconcile_at,
+              adapter_version
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(source) DO UPDATE SET
+              last_success_window_end = excluded.last_success_window_end,
+              last_full_reconcile_at = COALESCE(
+                excluded.last_full_reconcile_at,
+                ingestion_state.last_full_reconcile_at
+              ),
+              adapter_version = excluded.adapter_version`,
+          )
+          .bind(
+            SOURCE,
+            window.end.valueOf(),
+            window.fullReconcile ? completedAt : null,
+            ADAPTER_VERSION,
+          ),
+      );
+    }
     if (sourceResult.rejections.length > 0) {
       successStatements.push(
         rejectionStatement(db, runId, sourceResult.rejections, completedAt),
@@ -379,7 +400,7 @@ export async function runAfadSync(
     const completedAt = clock();
     try {
       const statements: D1PreparedStatement[] = [];
-      if (!(error instanceof IngestionLeaseLostError)) {
+      if (!(error instanceof IngestionLeaseLostError) && !plannedBackfill) {
         statements.push(
           db
             .prepare(

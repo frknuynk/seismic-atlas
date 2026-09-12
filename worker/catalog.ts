@@ -20,6 +20,22 @@ type EventRow = {
   revision_count: number;
 };
 
+type CountRow = {
+  total: number;
+};
+
+type CatalogCursor = {
+  originTime: number;
+  id: string;
+};
+
+export class InvalidCatalogCursorError extends Error {
+  constructor() {
+    super('The catalog cursor is invalid.');
+    this.name = 'InvalidCatalogCursorError';
+  }
+}
+
 type HealthRow = {
   source: 'AFAD';
   status: 'ok' | 'delayed' | 'error' | 'never_synced';
@@ -32,7 +48,12 @@ type HealthRow = {
 type IngestionRunRow = {
   id: string;
   trigger: 'manual' | 'scheduled';
-  window_kind: 'manual' | 'bootstrap' | 'incremental' | 'reconcile';
+  window_kind:
+    | 'manual'
+    | 'bootstrap'
+    | 'incremental'
+    | 'reconcile'
+    | 'backfill';
   window_start: number;
   window_end: number;
   status: 'running' | 'succeeded' | 'failed';
@@ -75,6 +96,42 @@ function iso(milliseconds: number | null) {
   return milliseconds === null ? null : new Date(milliseconds).toISOString();
 }
 
+function encodeCatalogCursor(cursor: CatalogCursor) {
+  const bytes = new TextEncoder().encode(JSON.stringify(cursor));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '');
+}
+
+function decodeCatalogCursor(value: string): CatalogCursor {
+  try {
+    const base64 = value.replaceAll('-', '+').replaceAll('_', '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) =>
+      character.charCodeAt(0),
+    );
+    const parsed = JSON.parse(
+      new TextDecoder().decode(bytes),
+    ) as Partial<CatalogCursor>;
+    if (
+      typeof parsed.originTime !== 'number' ||
+      !Number.isSafeInteger(parsed.originTime) ||
+      typeof parsed.id !== 'string' ||
+      parsed.id.length === 0
+    ) {
+      throw new InvalidCatalogCursorError();
+    }
+    return { originTime: parsed.originTime, id: parsed.id };
+  } catch (error) {
+    if (error instanceof InvalidCatalogCursorError) throw error;
+    throw new InvalidCatalogCursorError();
+  }
+}
+
 export async function queryEvents(db: D1Database, query: EventQuery) {
   const clauses = ['e.origin_time >= ?', 'e.origin_time <= ?'];
   const values: Array<string | number> = [
@@ -98,6 +155,14 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
   add('e.depth_km <= ?', query.maxDepth);
   add('e.source = ?', query.source);
 
+  const pageClauses = [...clauses];
+  const pageValues = [...values];
+  if (query.cursor) {
+    const cursor = decodeCatalogCursor(query.cursor);
+    pageClauses.push('(e.origin_time < ? OR (e.origin_time = ? AND e.id < ?))');
+    pageValues.push(cursor.originTime, cursor.originTime, cursor.id);
+  }
+
   const statement = db.prepare(
     `SELECT
       e.id,
@@ -113,14 +178,26 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
       COUNT(r.id) AS revision_count
     FROM source_events e
     LEFT JOIN source_event_revisions r ON r.source_event_pk = e.id
-    WHERE ${clauses.join(' AND ')}
+    WHERE ${pageClauses.join(' AND ')}
     GROUP BY e.id
-    ORDER BY e.origin_time DESC
+    ORDER BY e.origin_time DESC, e.id DESC
     LIMIT ?`,
   );
 
-  const result = await statement.bind(...values, query.limit).all<EventRow>();
-  const events: CatalogEvent[] = result.results.map((row) => ({
+  const [countRow, result, health] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total
+        FROM source_events e
+        WHERE ${clauses.join(' AND ')}`,
+      )
+      .bind(...values)
+      .first<CountRow>(),
+    statement.bind(...pageValues, query.limit + 1).all<EventRow>(),
+    getSourceHealth(db),
+  ]);
+  const pageRows = result.results.slice(0, query.limit);
+  const events: CatalogEvent[] = pageRows.map((row) => ({
     id: row.id,
     source: row.source,
     sourceEventId: row.source_event_id,
@@ -134,10 +211,24 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
     revisionCount: Number(row.revision_count),
   }));
 
-  const health = await getSourceHealth(db);
+  const hasMore = result.results.length > query.limit;
+  const lastEvent = events.at(-1);
+  const nextCursor =
+    hasMore && lastEvent
+      ? encodeCatalogCursor({
+          originTime: Date.parse(lastEvent.originTime),
+          id: lastEvent.id,
+        })
+      : null;
+  const total = Number(countRow?.total ?? 0);
   const response: EventsResponse = {
     meta: {
       count: events.length,
+      total,
+      returned: events.length,
+      hasMore,
+      truncated: total > events.length,
+      nextCursor,
       source: query.source ? [query.source] : ['AFAD'],
       freshness: health.AFAD.lastSuccessAt
         ? { AFAD: health.AFAD.lastSuccessAt }
