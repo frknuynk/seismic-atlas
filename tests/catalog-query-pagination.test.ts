@@ -13,6 +13,7 @@ function sqliteD1() {
     '0003_needy_shiver_man.sql',
     '0004_free_saracen.sql',
     '0005_round_firestar.sql',
+    '0006_optimal_umar.sql',
   ]) {
     sqlite.exec(
       readFileSync(

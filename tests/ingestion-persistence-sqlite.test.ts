@@ -22,6 +22,7 @@ function sqliteD1() {
     '0003_needy_shiver_man.sql',
     '0004_free_saracen.sql',
     '0005_round_firestar.sql',
+    '0006_optimal_umar.sql',
   ]) {
     sqlite.exec(
       readFileSync(
@@ -235,6 +236,18 @@ describe('D1 ingestion SQL', () => {
         )
         .get(),
     ).toEqual({ status: 'ok', consecutive_failures: 0 });
+    expect(
+      database.sqlite
+        .prepare(
+          `SELECT consecutive_failures, circuit_open_until, last_error_code
+          FROM source_request_control WHERE source = 'AFAD'`,
+        )
+        .get(),
+    ).toEqual({
+      consecutive_failures: 0,
+      circuit_open_until: null,
+      last_error_code: null,
+    });
     expect(
       database.sqlite
         .prepare('SELECT COUNT(*) AS count FROM ingestion_rejections')

@@ -9,10 +9,10 @@
       "binding": "DB",
       "database_name": "seismic-atlas-local",
       "database_id": "00000000-0000-4000-8000-000000000000",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
   ],
   "triggers": {
-    "crons": ["* * * * *"]
-  }
+    "crons": ["7 * * * *"],
+  },
 }

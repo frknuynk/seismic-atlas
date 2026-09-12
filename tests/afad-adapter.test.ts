@@ -3,6 +3,7 @@ import {
   fetchAfadWindow,
   fetchAfadWindowWithDiagnostics,
   normalizeAfadEvent,
+  parseRetryAfter,
 } from '@/worker/sources/afad';
 
 const fixture = {
@@ -65,15 +66,24 @@ describe('AFAD adapter', () => {
     expect(requestedUrl?.searchParams.get('maxlon')).toBe('46');
     expect(requestedUrl?.searchParams.get('limit')).toBe('2500');
     expect(requestedOptions?.redirect).toBe('follow');
+    expect(new Headers(requestedOptions?.headers).get('user-agent')).toContain(
+      'SeismicAtlas/0.5',
+    );
     expect(events).toHaveLength(1);
   });
 
   it('retries transient upstream failures with a bounded attempt count', async () => {
     let attempts = 0;
+    const delays: number[] = [];
     const fetcher = async () => {
       attempts += 1;
       if (attempts === 1) return Response.json({}, { status: 503 });
-      if (attempts === 2) return Response.json({}, { status: 429 });
+      if (attempts === 2) {
+        return Response.json(
+          {},
+          { status: 429, headers: { 'Retry-After': '5' } },
+        );
+      }
       return Response.json([fixture]);
     };
 
@@ -81,11 +91,49 @@ describe('AFAD adapter', () => {
       new Date('2026-09-01T00:00:00.000Z'),
       new Date('2026-09-03T00:00:00.000Z'),
       fetcher as typeof fetch,
-      { maxAttempts: 3, sleep: async () => {} },
+      {
+        maxAttempts: 3,
+        random: () => 0,
+        sleep: async (delay) => {
+          delays.push(delay);
+        },
+      },
     );
 
     expect(result.attempts).toBe(3);
     expect(result.events).toHaveLength(1);
+    expect(delays).toEqual([2_000, 5_000]);
+  });
+
+  it('honors long Retry-After values by stopping instead of retrying early', async () => {
+    const delays: number[] = [];
+
+    await expect(
+      fetchAfadWindowWithDiagnostics(
+        new Date('2026-09-01T00:00:00.000Z'),
+        new Date('2026-09-03T00:00:00.000Z'),
+        async () =>
+          Response.json({}, { status: 429, headers: { 'Retry-After': '120' } }),
+        {
+          maxAttempts: 3,
+          sleep: async (delay) => {
+            delays.push(delay);
+          },
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: 'AFAD_HTTP_429',
+      attempts: 1,
+      retryAfterMs: 120_000,
+    });
+    expect(delays).toEqual([]);
+  });
+
+  it('parses Retry-After seconds and HTTP dates', () => {
+    const now = Date.parse('2026-09-12T12:00:00.000Z');
+    expect(parseRetryAfter('7', now)).toBe(7_000);
+    expect(parseRetryAfter('Sat, 12 Sep 2026 12:02:00 GMT', now)).toBe(120_000);
+    expect(parseRetryAfter('invalid', now)).toBeNull();
   });
 
   it('splits saturated windows and deduplicates their inclusive midpoint', async () => {

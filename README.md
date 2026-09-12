@@ -70,12 +70,30 @@ The development server prints its local URL. The API foundation is available at
 Run a first local AFAD synchronization with:
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/internal/sync/afad
+npm run sync:afad:local -- --minutes=15
 ```
 
-The production route requires `AFAD_SYNC_TOKEN`. Scheduled ingestion uses an
-overlapping cursor window of at least 15 minutes and never removes previously
-stored events when the upstream service is unavailable.
+This command runs the production ingestion pipeline in Node and writes to the
+same local D1 database used by the development server. It is the supported
+local fallback for a known `workerd` development-runtime interoperability issue
+with some upstream TLS endpoints. Stop the development server before running
+the command, then start it again to inspect the synchronized catalog. The
+Worker API route remains the production/manual synchronization entry point and
+must receive a successful remote smoke test before the production cron is
+enabled.
+
+The production route requires `AFAD_SYNC_TOKEN`. The Cloudflare Cron Trigger
+runs at minute 7 of every hour, so stored observations can be up to roughly one
+hour behind AFAD. Scheduled ingestion uses an overlapping cursor window of at
+least 15 minutes and never removes previously stored events when the upstream
+service is unavailable.
+
+The AFAD adapter identifies Seismic Atlas on every request, limits retries to a
+bounded exponential backoff starting at two seconds with jitter, and honors the
+upstream `Retry-After` header. A persistent D1 circuit breaker pauses requests
+for at least one hour after rate limiting, for 24 hours after an HTTP 403, or
+after three consecutive upstream failures. The source-health response exposes
+an active protective pause and its retry time.
 
 Run an authorized historical backfill in daily chunks with:
 

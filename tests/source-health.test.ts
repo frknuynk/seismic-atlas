@@ -20,6 +20,13 @@ function healthDatabase() {
                 };
               }
 
+              if (sql.includes('FROM source_request_control')) {
+                return {
+                  circuit_open_until: Date.now() + 60 * 60_000,
+                  last_error_code: 'AFAD_HTTP_429',
+                };
+              }
+
               return {
                 id: 'run-1',
                 trigger: 'scheduled',
@@ -56,6 +63,10 @@ describe('source health diagnostics', () => {
     );
 
     expect(health.AFAD.status).toBe('delayed');
+    expect(health.AFAD.requestControl).toMatchObject({
+      status: 'open',
+      errorCode: 'AFAD_HTTP_429',
+    });
     expect(health.AFAD.lastRun).toMatchObject({
       id: 'run-1',
       trigger: 'scheduled',

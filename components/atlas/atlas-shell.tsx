@@ -87,6 +87,20 @@ function sourceStatusColor(status: string | null | undefined) {
   return 'bg-slate-500';
 }
 
+function sourceProtectionMessage(
+  control: SourceHealthResponse['AFAD']['requestControl'] | undefined,
+) {
+  if (!control || control.status !== 'open' || !control.retryAt) return null;
+  const retryAt = new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Istanbul',
+  }).format(new Date(control.retryAt));
+  return `AFAD requests are protectively paused until ${retryAt}${control.errorCode ? ` · ${control.errorCode}` : ''}.`;
+}
+
 function syncRunSummary(
   run: NonNullable<SourceHealthResponse['AFAD']['lastRun']>,
 ) {
@@ -196,6 +210,7 @@ export function AtlasShell({
     filters,
     bounds,
   );
+  const protectionMessage = sourceProtectionMessage(health?.requestControl);
   const {
     quality,
     state: qualityState,
@@ -441,6 +456,11 @@ export function AtlasShell({
                   {health?.lastRun && (
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       {syncRunSummary(health.lastRun)}
+                    </p>
+                  )}
+                  {protectionMessage && (
+                    <p className="mt-2 rounded border border-amber-400/25 bg-amber-400/10 px-2 py-1.5 text-xs leading-5 text-amber-100">
+                      {protectionMessage}
                     </p>
                   )}
                 </div>

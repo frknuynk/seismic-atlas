@@ -14,6 +14,12 @@ import {
   persistEventsInBatches,
   type PersistenceCounts,
 } from '@/worker/ingestion/persistence';
+import {
+  planSourceCircuitFailure,
+  sourceCircuitFailureStatement,
+  sourceCircuitGate,
+  sourceCircuitSuccessStatement,
+} from '@/worker/ingestion/source-control';
 
 const SOURCE = 'AFAD';
 const ADAPTER_VERSION = 'afad-v3';
@@ -204,6 +210,7 @@ export async function runAfadSync(
   let committedWriteBatches = 0;
   let sourceResult: AfadWindowResult | null = null;
   let sourceProgress: AfadFetchProgress = { attempts: 0, splits: 0 };
+  let previousSourceFailures = 0;
   const heartbeat = createLeaseHeartbeat({
     db,
     runId,
@@ -216,6 +223,18 @@ export async function runAfadSync(
   });
 
   try {
+    const circuit = await sourceCircuitGate(db, SOURCE, startedAt);
+    previousSourceFailures = circuit.consecutiveFailures;
+    if (!circuit.allowed) {
+      return {
+        runId,
+        status: 'skipped' as const,
+        reason: 'source_circuit_open' as const,
+        retryAt: new Date(circuit.retryAt).toISOString(),
+        errorCode: circuit.reason,
+      };
+    }
+
     leaseAcquired = await acquireLease(db, runId, startedAt);
     if (!leaseAcquired) {
       return {
@@ -301,6 +320,7 @@ export async function runAfadSync(
     const completedAt = clock();
 
     const successStatements = [
+      sourceCircuitSuccessStatement(db, SOURCE, completedAt),
       db
         .prepare(
           `UPDATE ingestion_runs SET
@@ -440,6 +460,23 @@ export async function runAfadSync(
               rejectionStatement(db, runId, error.rejections, completedAt),
             );
           }
+        }
+      }
+      if (error instanceof AfadSourceError) {
+        const circuitFailure = planSourceCircuitFailure({
+          error,
+          previousFailures: previousSourceFailures,
+          now: completedAt,
+        });
+        if (circuitFailure) {
+          statements.push(
+            sourceCircuitFailureStatement(
+              db,
+              SOURCE,
+              circuitFailure,
+              completedAt,
+            ),
+          );
         }
       }
       if (statements.length > 0) await db.batch(statements);

@@ -130,6 +130,14 @@ export const ingestionLeases = sqliteTable('ingestion_leases', {
   expiresAt: integer('expires_at').notNull(),
 });
 
+export const sourceRequestControl = sqliteTable('source_request_control', {
+  source: text('source').primaryKey(),
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  circuitOpenUntil: integer('circuit_open_until'),
+  lastErrorCode: text('last_error_code'),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const ingestionRejections = sqliteTable(
   'ingestion_rejections',
   {

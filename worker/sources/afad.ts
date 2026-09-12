@@ -7,6 +7,8 @@ import {
 const AFAD_API_URL = 'https://deprem.afad.gov.tr/apiv2/event/filter';
 const AFAD_RESPONSE_LIMIT = 2_500;
 const MAX_WINDOW_SPLITS = 63;
+const AFAD_CLIENT_IDENTITY =
+  'SeismicAtlas/0.5 (+https://github.com/frknuynk/seismic-atlas)';
 
 const AfadEventSchema = z.object({
   eventID: z.union([z.string(), z.number()]).transform(String),
@@ -47,8 +49,12 @@ export type AfadFetchProgress = {
 export type AfadFetchOptions = {
   beforeRequest?: (progress: AfadFetchProgress) => Promise<void>;
   maxAttempts?: number;
+  maxRetryDelayMs?: number;
   maxSplits?: number;
+  now?: () => number;
+  random?: () => number;
   responseLimit?: number;
+  retryBaseMs?: number;
   timeoutMs?: number;
   sleep?: (delayMs: number) => Promise<void>;
 };
@@ -70,8 +76,10 @@ export class AfadSourceError extends Error {
     readonly attempts: number,
     readonly rejections: AfadRejectedRecord[] = [],
     readonly splits = 0,
+    readonly retryAfterMs: number | null = null,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = 'AfadSourceError';
   }
 }
@@ -113,6 +121,37 @@ export function normalizeAfadEvent(raw: unknown): NormalizedSourceEvent {
 
 function retryableStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
+}
+
+export function parseRetryAfter(
+  value: string | null,
+  now = Date.now(),
+): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds * 1_000);
+  }
+
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return null;
+  return Math.max(0, date - now);
+}
+
+function retryDelay({
+  attempt,
+  baseMs,
+  random,
+  retryAfterMs,
+}: {
+  attempt: number;
+  baseMs: number;
+  random: () => number;
+  retryAfterMs: number | null;
+}) {
+  const exponential = baseMs * 2 ** Math.max(0, attempt - 1);
+  const jitter = Math.floor(exponential * 0.25 * random());
+  return Math.max(retryAfterMs ?? 0, exponential + jitter);
 }
 
 function sourceUpdateTime(event: NormalizedSourceEvent) {
@@ -164,7 +203,16 @@ async function fetchRawAfadWindow(
   window: PendingWindow,
   fetcher: typeof fetch,
   options: Required<
-    Pick<AfadFetchOptions, 'maxAttempts' | 'responseLimit' | 'timeoutMs'>
+    Pick<
+      AfadFetchOptions,
+      | 'maxAttempts'
+      | 'maxRetryDelayMs'
+      | 'now'
+      | 'random'
+      | 'responseLimit'
+      | 'retryBaseMs'
+      | 'timeoutMs'
+    >
   > & {
     beforeRequest?: AfadFetchOptions['beforeRequest'];
     sleep: NonNullable<AfadFetchOptions['sleep']>;
@@ -181,7 +229,10 @@ async function fetchRawAfadWindow(
     metrics.attempts += 1;
     try {
       response = await fetcher(url, {
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': AFAD_CLIENT_IDENTITY,
+        },
         redirect: 'follow',
         signal: AbortSignal.timeout(options.timeoutMs),
       });
@@ -196,16 +247,33 @@ async function fetchRawAfadWindow(
           metrics.attempts,
           [],
           metrics.splits,
+          null,
+          { cause: error },
         );
       }
-      await options.sleep(250 * 2 ** (windowAttempts - 1));
+      await options.sleep(
+        Math.min(
+          options.maxRetryDelayMs,
+          retryDelay({
+            attempt: windowAttempts,
+            baseMs: options.retryBaseMs,
+            random: options.random,
+            retryAfterMs: null,
+          }),
+        ),
+      );
       continue;
     }
 
     if (response.ok) break;
+    const retryAfterMs = parseRetryAfter(
+      response.headers.get('retry-after'),
+      options.now(),
+    );
     if (
       !retryableStatus(response.status) ||
-      windowAttempts >= options.maxAttempts
+      windowAttempts >= options.maxAttempts ||
+      (retryAfterMs !== null && retryAfterMs > options.maxRetryDelayMs)
     ) {
       throw new AfadSourceError(
         `AFAD_HTTP_${response.status}`,
@@ -213,9 +281,20 @@ async function fetchRawAfadWindow(
         metrics.attempts,
         [],
         metrics.splits,
+        retryAfterMs,
       );
     }
-    await options.sleep(250 * 2 ** (windowAttempts - 1));
+    await options.sleep(
+      Math.min(
+        options.maxRetryDelayMs,
+        retryDelay({
+          attempt: windowAttempts,
+          baseMs: options.retryBaseMs,
+          random: options.random,
+          retryAfterMs,
+        }),
+      ),
+    );
   }
 
   if (!response) {
@@ -276,14 +355,21 @@ export async function fetchAfadWindowWithDiagnostics(
   const fetchOptions = {
     beforeRequest: options.beforeRequest,
     maxAttempts: Math.min(5, Math.max(1, options.maxAttempts ?? 3)),
+    maxRetryDelayMs: Math.min(
+      30_000,
+      Math.max(2_000, options.maxRetryDelayMs ?? 30_000),
+    ),
     maxSplits: Math.min(
       MAX_WINDOW_SPLITS,
       Math.max(0, options.maxSplits ?? MAX_WINDOW_SPLITS),
     ),
+    now: options.now ?? Date.now,
+    random: options.random ?? Math.random,
     responseLimit: Math.min(
       AFAD_RESPONSE_LIMIT,
       Math.max(1, options.responseLimit ?? AFAD_RESPONSE_LIMIT),
     ),
+    retryBaseMs: Math.min(10_000, Math.max(500, options.retryBaseMs ?? 2_000)),
     timeoutMs: Math.max(1_000, options.timeoutMs ?? 10_000),
     sleep:
       options.sleep ??

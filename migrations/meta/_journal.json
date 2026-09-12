@@ -43,6 +43,13 @@
       "when": 1788886643564,
       "tag": "0005_round_firestar",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789222247810,
+      "tag": "0006_optimal_umar",
+      "breakpoints": true
     }
   ]
 }

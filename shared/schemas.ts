@@ -142,6 +142,11 @@ export const SourceHealthEntrySchema = z.object({
   lastSuccessAt: z.iso.datetime({ offset: true }).nullable(),
   latestEventTime: z.iso.datetime({ offset: true }).nullable(),
   consecutiveFailures: z.number().int().nonnegative(),
+  requestControl: z.object({
+    status: z.enum(['closed', 'open']),
+    retryAt: z.iso.datetime({ offset: true }).nullable(),
+    errorCode: z.string().nullable(),
+  }),
   lastRun: z
     .object({
       id: z.string().min(1),

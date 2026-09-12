@@ -1,14 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { NormalizedSourceEvent } from '@/shared/schemas';
 import { IngestionLeaseLostError, runAfadSync } from '@/worker/ingestion/afad';
-import type { AfadWindowResult } from '@/worker/sources/afad';
+import { AfadSourceError, type AfadWindowResult } from '@/worker/sources/afad';
 
 type CapturedStatement = {
   sql: string;
   bindings: unknown[];
 };
 
-function ingestionDatabase({ renewChanges = 1 } = {}) {
+function ingestionDatabase({
+  renewChanges = 1,
+  circuitRow = null,
+}: {
+  renewChanges?: number;
+  circuitRow?: {
+    consecutive_failures: number;
+    circuit_open_until: number | null;
+    last_error_code: string | null;
+  } | null;
+} = {}) {
   const runStatements: CapturedStatement[] = [];
   const batches: CapturedStatement[][] = [];
   let renewals = 0;
@@ -19,7 +29,7 @@ function ingestionDatabase({ renewChanges = 1 } = {}) {
         bind(...bindings: unknown[]) {
           const statement: CapturedStatement & {
             run: () => Promise<{ meta: { changes: number } }>;
-            first: () => Promise<null>;
+            first: () => Promise<unknown>;
           } = {
             sql,
             bindings,
@@ -34,6 +44,9 @@ function ingestionDatabase({ renewChanges = 1 } = {}) {
               return { meta: { changes: 1 } };
             },
             async first() {
+              if (sql.includes('FROM source_request_control')) {
+                return circuitRow;
+              }
               return null;
             },
           };
@@ -86,6 +99,64 @@ function sourceResult(events = [sourceEvent]): AfadWindowResult {
 const startedAt = Date.parse('2026-09-08T12:05:00.000Z');
 
 describe('AFAD ingestion run control', () => {
+  it('does not contact AFAD while the persistent source circuit is open', async () => {
+    const retryAt = startedAt + 60 * 60_000;
+    const database = ingestionDatabase({
+      circuitRow: {
+        consecutive_failures: 1,
+        circuit_open_until: retryAt,
+        last_error_code: 'AFAD_HTTP_429',
+      },
+    });
+    let fetched = false;
+
+    const result = await runAfadSync(database.db, {
+      now: new Date(startedAt),
+      clock: () => startedAt,
+      fetchWindow: async () => {
+        fetched = true;
+        return sourceResult();
+      },
+    });
+
+    expect(result).toEqual({
+      runId: expect.any(String),
+      status: 'skipped',
+      reason: 'source_circuit_open',
+      retryAt: new Date(retryAt).toISOString(),
+      errorCode: 'AFAD_HTTP_429',
+    });
+    expect(fetched).toBe(false);
+    expect(database.runStatements).toEqual([]);
+  });
+
+  it('persists a 24-hour circuit after AFAD rejects access', async () => {
+    const database = ingestionDatabase();
+
+    await expect(
+      runAfadSync(database.db, {
+        now: new Date(startedAt),
+        clock: () => startedAt + 1_000,
+        fetchWindow: async () => {
+          throw new AfadSourceError('AFAD_HTTP_403', 'Forbidden', 1);
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'AFAD_HTTP_403' });
+
+    const circuitWrite = database.batches
+      .flat()
+      .find((statement) =>
+        statement.sql.includes('INSERT INTO source_request_control'),
+      );
+    expect(circuitWrite?.bindings).toEqual([
+      'AFAD',
+      1,
+      startedAt + 1_000 + 24 * 60 * 60_000,
+      'AFAD_HTTP_403',
+      startedAt + 1_000,
+    ]);
+  });
+
   it('audits backfill without moving the scheduled ingestion cursor', async () => {
     const database = ingestionDatabase();
     let fetchedWindow: [string, string] | null = null;
@@ -138,6 +209,13 @@ describe('AFAD ingestion run control', () => {
         statement.sql.includes('INSERT INTO ingestion_runs'),
       )?.bindings[3],
     ).toBe('backfill');
+    expect(
+      database.batches
+        .flat()
+        .some((statement) =>
+          statement.sql.includes('INSERT INTO source_request_control'),
+        ),
+    ).toBe(true);
   });
 
   it('does not advance the cursor when persistence fails', async () => {

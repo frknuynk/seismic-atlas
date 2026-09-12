@@ -45,6 +45,11 @@ type HealthRow = {
   consecutive_failures: number;
 };
 
+type SourceRequestControlRow = {
+  circuit_open_until: number | null;
+  last_error_code: string | null;
+};
+
 type IngestionRunRow = {
   id: string;
   trigger: 'manual' | 'scheduled';
@@ -243,7 +248,7 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
 export async function getSourceHealth(
   db: D1Database,
 ): Promise<SourceHealthResponse> {
-  const [row, lastRun] = await Promise.all([
+  const [row, lastRun, requestControl] = await Promise.all([
     db
       .prepare(
         `SELECT source, status, last_attempt_at, last_success_at,
@@ -266,7 +271,27 @@ export async function getSourceHealth(
       )
       .bind('AFAD')
       .first<IngestionRunRow>(),
+    db
+      .prepare(
+        `SELECT circuit_open_until, last_error_code
+        FROM source_request_control
+        WHERE source = ?`,
+      )
+      .bind('AFAD')
+      .first<SourceRequestControlRow>(),
   ]);
+
+  const requestControlOpen =
+    requestControl?.circuit_open_until !== null &&
+    requestControl?.circuit_open_until !== undefined &&
+    requestControl.circuit_open_until > Date.now();
+  const requestControlResponse = {
+    status: requestControlOpen ? ('open' as const) : ('closed' as const),
+    retryAt: requestControlOpen ? iso(requestControl.circuit_open_until) : null,
+    errorCode: requestControlOpen
+      ? (requestControl.last_error_code ?? null)
+      : null,
+  };
 
   if (!row) {
     return {
@@ -276,6 +301,7 @@ export async function getSourceHealth(
         lastSuccessAt: null,
         latestEventTime: null,
         consecutiveFailures: 0,
+        requestControl: requestControlResponse,
         lastRun: null,
       },
     };
@@ -284,7 +310,7 @@ export async function getSourceHealth(
   const status =
     row.status === 'ok' &&
     row.last_success_at !== null &&
-    Date.now() - row.last_success_at > 5 * 60_000
+    Date.now() - row.last_success_at > 75 * 60_000
       ? 'delayed'
       : row.status;
 
@@ -295,6 +321,7 @@ export async function getSourceHealth(
       lastSuccessAt: iso(row.last_success_at),
       latestEventTime: iso(row.latest_event_time),
       consecutiveFailures: row.consecutive_failures,
+      requestControl: requestControlResponse,
       lastRun: lastRun
         ? {
             id: lastRun.id,

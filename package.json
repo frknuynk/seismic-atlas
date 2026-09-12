@@ -16,6 +16,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "data:build:faults": "node scripts/build_fault_layer.mjs",
+    "sync:afad:local": "node --import tsx scripts/sync_afad_local.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply seismic-atlas-local --local --config wrangler.jsonc"
   },
@@ -60,6 +61,7 @@
     "oxlint-tsgolint": "7.0.2001",
     "shadcn": "4.18.0",
     "tailwindcss": "4.2.1",
+    "tsx": "4.23.13",
     "typescript": "5.9.3",
     "vite": "^8.2.2",
     "vitest": "^4.0.17",
