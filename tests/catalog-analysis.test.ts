@@ -35,6 +35,9 @@ describe('catalog analysis', () => {
     expect(catalogAnalysisKey([{ ...cloned[0], magnitude: 2.5 }])).not.toBe(
       catalogAnalysisKey(original),
     );
+    expect(catalogAnalysisKey([{ ...cloned[0], longitude: 35.5 }])).not.toBe(
+      catalogAnalysisKey(original),
+    );
   });
 
   it('computes descriptive coverage, histograms, and cumulative FMD', () => {
@@ -50,6 +53,11 @@ describe('catalog analysis', () => {
       maximumMagnitude: 2.1,
       magnitudeCoveragePercent: 75,
       depthCoveragePercent: 75,
+      sequences: {
+        candidateCount: 1,
+        clusteredEventCount: 4,
+        unclusteredEventCount: 0,
+      },
       quality: { status: 'limited' },
     });
     expect(
@@ -80,6 +88,7 @@ describe('catalog analysis', () => {
       magnitudeCoveragePercent: 0,
       depthCoveragePercent: 0,
       magnitudeTypes: [],
+      sequences: { candidateCount: 0, clusteredEventCount: 0 },
       quality: { status: 'empty' },
     });
   });

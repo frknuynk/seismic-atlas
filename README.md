@@ -2,7 +2,7 @@
 
 A map-first, provenance-aware seismic exploration workspace for Türkiye.
 
-Current development version: **0.5.0-alpha.0**.
+Current development version: **0.6.0-alpha.0**.
 
 Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
 schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
@@ -49,6 +49,18 @@ analysis and exports if a page is missing, a cursor repeats, counts change while
 paging, the browser cap is reached, or AFAD ingestion overlaps the read. This
 prevents a partial catalog from silently appearing as a complete scientific
 selection.
+
+The first v0.6 intelligence slice detects reproducible, proximity-based seismic
+sequence candidates inside a complete Catalog Lab selection. It uses indexed
+spatiotemporal single-linkage with explicit 30 km and 24 hour neighbor
+thresholds and requires at least three events. The results identify groups for
+exploration only; they do not classify mainshocks or aftershocks, attribute
+causation, estimate hazard, or forecast earthquakes. Analysis manifests record
+the method version and thresholds.
+Candidate membership is rendered as a color-coded map overlay. Selecting a Lab
+candidate keeps the complete analysis subset stable, fits every member above
+the Lab panel on desktop and mobile, and stores the stable candidate identifier
+in the shareable URL.
 
 ## Requirements
 

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Activity,
   AlertTriangle,
   Braces,
   CheckCircle2,
@@ -28,7 +29,7 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useCatalogAnalysis } from '@/hooks/use-catalog-analysis';
+import type { CatalogAnalysisState } from '@/hooks/use-catalog-analysis';
 import {
   analysisManifest,
   catalogCsv,
@@ -41,6 +42,8 @@ import type {
 } from '@/shared/atlas-state';
 import type { CatalogEvent } from '@/shared/schemas';
 import type { CatalogCompleteness } from '@/lib/api/catalog-pages';
+import { sequenceColor } from '@/lib/map/sequence-style';
+import { cn } from '@/lib/utils';
 
 const countChartConfig = {
   count: { label: 'Events', color: 'var(--primary)' },
@@ -75,6 +78,9 @@ type CatalogLabProps = {
   bounds: MapBounds | null;
   timelineWindow: TimelineWindow | null;
   completeness: CatalogCompleteness;
+  state: CatalogAnalysisState;
+  selectedSequenceId: string | null;
+  onSelectSequence: (sequenceId: string) => void;
 };
 
 export function CatalogLab({
@@ -83,8 +89,10 @@ export function CatalogLab({
   bounds,
   timelineWindow,
   completeness,
+  state,
+  selectedSequenceId,
+  onSelectSequence,
 }: CatalogLabProps) {
-  const state = useCatalogAnalysis(events, completeness.complete);
   const analysis = state.analysis;
   const range =
     analysis?.firstEventTime && analysis.lastEventTime
@@ -98,32 +106,37 @@ export function CatalogLab({
       aria-labelledby="catalog-lab-title"
       className="absolute inset-x-3 bottom-3 z-10 flex max-h-[72vh] min-h-72 flex-col overflow-hidden rounded-xl border border-primary/25 bg-background/95 shadow-[0_24px_80px_rgb(0_0_0/48%)] backdrop-blur-xl md:inset-x-4 md:h-[46vh] md:min-h-80"
     >
-      <div className="flex shrink-0 items-center gap-3 border-b border-primary/15 bg-primary/[0.04] px-3 py-2.5 md:px-4">
-        <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-primary/25 bg-primary/10 text-primary shadow-[0_0_24px_color-mix(in_oklab,var(--primary)_18%,transparent)]">
-          <FlaskConical className="size-4" aria-hidden="true" />
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 id="catalog-lab-title" className="font-semibold">
-              Catalog Lab
-            </h2>
-            <Badge variant="outline">Viewport subset</Badge>
-            {completeness.complete && completeness.total !== null && (
-              <Badge className="border-emerald-300/25 bg-emerald-300/10 text-emerald-200">
-                <CheckCircle2 className="size-3" aria-hidden="true" />
-                Complete {completeness.loaded.toLocaleString()}/
-                {completeness.total.toLocaleString()}
-              </Badge>
-            )}
-            {state.status === 'refreshing' && (
-              <Badge variant="secondary" aria-live="polite">
-                Updating…
-              </Badge>
-            )}
+      <div className="flex shrink-0 flex-col gap-2 border-b border-primary/15 bg-primary/[0.04] px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3 md:px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-primary/25 bg-primary/10 text-primary shadow-[0_0_24px_color-mix(in_oklab,var(--primary)_18%,transparent)]">
+            <FlaskConical className="size-4" aria-hidden="true" />
           </div>
-          <p className="truncate text-xs text-muted-foreground">
-            {range} · AFAD preferred solutions
-          </p>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2
+                id="catalog-lab-title"
+                className="whitespace-nowrap font-semibold"
+              >
+                Catalog Lab
+              </h2>
+              <Badge variant="outline">Viewport subset</Badge>
+              {completeness.complete && completeness.total !== null && (
+                <Badge className="border-emerald-300/25 bg-emerald-300/10 text-emerald-200">
+                  <CheckCircle2 className="size-3" aria-hidden="true" />
+                  Complete {completeness.loaded.toLocaleString()}/
+                  {completeness.total.toLocaleString()}
+                </Badge>
+              )}
+              {state.status === 'refreshing' && (
+                <Badge variant="secondary" aria-live="polite">
+                  Updating…
+                </Badge>
+              )}
+            </div>
+            <p className="truncate text-xs text-muted-foreground">
+              {range} · AFAD preferred solutions
+            </p>
+          </div>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -131,6 +144,7 @@ export function CatalogLab({
             type="button"
             size="sm"
             variant="outline"
+            aria-label="Download catalog as CSV"
             disabled={
               !analysis || events.length === 0 || state.status === 'refreshing'
             }
@@ -145,6 +159,7 @@ export function CatalogLab({
             type="button"
             size="sm"
             variant="outline"
+            aria-label="Download catalog as GeoJSON"
             disabled={
               !analysis || events.length === 0 || state.status === 'refreshing'
             }
@@ -163,6 +178,7 @@ export function CatalogLab({
             type="button"
             size="sm"
             variant="outline"
+            aria-label="Download reproducible methods manifest"
             disabled={!analysis || state.status === 'refreshing'}
             onClick={() => {
               if (!analysis) return;
@@ -260,6 +276,100 @@ export function CatalogLab({
                 ))
               )}
             </div>
+
+            <section className="mt-3 rounded-lg border border-primary/20 bg-primary/[0.035] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-medium">
+                    <Activity
+                      className="size-4 text-primary"
+                      aria-hidden="true"
+                    />
+                    Possible seismic sequences
+                  </h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Single-linkage candidates: events connected within{' '}
+                    {analysis.sequences.parameters.maxNeighborDistanceKm} km and{' '}
+                    {analysis.sequences.parameters.maxNeighborTimeHours} hours;
+                    minimum {analysis.sequences.parameters.minEvents} events.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Badge variant="outline">
+                    {analysis.sequences.candidateCount} candidates
+                  </Badge>
+                  <Badge variant="secondary">
+                    {analysis.sequences.clusteredEventCount} grouped events
+                  </Badge>
+                </div>
+              </div>
+
+              {analysis.sequences.candidates.length === 0 ? (
+                <p className="mt-3 rounded-md border border-dashed px-3 py-3 text-xs text-muted-foreground">
+                  No proximity-based sequence candidate meets the current
+                  threshold in this complete selection.
+                </p>
+              ) : (
+                <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {analysis.sequences.candidates.map((candidate, index) => {
+                    const selected = candidate.id === selectedSequenceId;
+                    const color = sequenceColor(index);
+                    return (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => onSelectSequence(candidate.id)}
+                        className={cn(
+                          'rounded-md border bg-background/55 p-3 text-left transition hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                          selected && 'border-primary/70 bg-primary/[0.08]',
+                        )}
+                        style={{
+                          boxShadow: selected
+                            ? `inset 3px 0 0 ${color}, 0 0 24px color-mix(in srgb, ${color} 12%, transparent)`
+                            : `inset 2px 0 0 color-mix(in srgb, ${color} 65%, transparent)`,
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: color }}
+                              aria-hidden="true"
+                            />
+                            <p className="truncate text-sm font-medium">
+                              {candidate.representativePlace ??
+                                `Candidate ${index + 1}`}
+                            </p>
+                          </div>
+                          <span className="whitespace-nowrap font-mono text-xs text-primary">
+                            {candidate.eventCount} events
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                          <SequenceMetric
+                            label="Maximum"
+                            value={
+                              candidate.maximumMagnitude === null
+                                ? '—'
+                                : `M ${candidate.maximumMagnitude.toFixed(1)}`
+                            }
+                          />
+                          <SequenceMetric
+                            label="Span"
+                            value={formatDuration(candidate.durationHours)}
+                          />
+                          <SequenceMetric
+                            label="Radius"
+                            value={`${candidate.spatialRadiusKm.toFixed(1)} km`}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
 
             {analysis.eventCount === 0 ? (
               <div className="mt-3 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -416,6 +526,23 @@ export function CatalogLab({
         </ScrollArea>
       )}
     </section>
+  );
+}
+
+function formatDuration(hours: number) {
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
+  return `${(hours / 24).toFixed(1)}d`;
+}
+
+function SequenceMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-0.5 font-mono tabular-nums">{value}</p>
+    </div>
   );
 }
 

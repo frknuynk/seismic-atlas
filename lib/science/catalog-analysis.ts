@@ -1,6 +1,10 @@
 import type { CatalogEvent } from '@/shared/schemas';
+import {
+  detectSequenceCandidates,
+  type SequenceAnalysis,
+} from '@/lib/science/seismic-sequences';
 
-export const CATALOG_ANALYSIS_VERSION = 'catalog-analysis-v1';
+export const CATALOG_ANALYSIS_VERSION = 'catalog-analysis-v2';
 
 export function catalogAnalysisKey(events: CatalogEvent[]) {
   return events
@@ -8,6 +12,8 @@ export function catalogAnalysisKey(events: CatalogEvent[]) {
       [
         event.id,
         event.originTime,
+        event.latitude,
+        event.longitude,
         event.magnitude ?? '',
         event.magnitudeType ?? '',
         event.depthKm ?? '',
@@ -47,6 +53,7 @@ export type CatalogAnalysis = {
   magnitudeHistogram: HistogramBin[];
   depthHistogram: HistogramBin[];
   frequencyMagnitude: FrequencyMagnitudePoint[];
+  sequences: SequenceAnalysis;
   quality: {
     status: 'empty' | 'limited' | 'descriptive';
     messages: string[];
@@ -175,6 +182,7 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
       (left, right) =>
         right.count - left.count || left.type.localeCompare(right.type),
     );
+  const sequences = detectSequenceCandidates(events);
 
   const messages: string[] = [];
   if (events.length === 0) {
@@ -192,6 +200,9 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
     }
     messages.push(
       'Catalog completeness has not been estimated, so no b-value is reported.',
+    );
+    messages.push(
+      'Sequence candidates are proximity-based groupings, not mainshock/aftershock classifications.',
     );
   }
 
@@ -216,6 +227,7 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
     magnitudeHistogram: numericHistogram(magnitudes, 0.5),
     depthHistogram: depthHistogram(depths),
     frequencyMagnitude: frequencyMagnitude(magnitudes),
+    sequences,
     quality: {
       status:
         events.length === 0

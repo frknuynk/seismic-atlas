@@ -1,18 +1,20 @@
 'use client';
 
 import { LocateFixed, Mountain, RotateCcw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
 import {
   eventFocusForViewport,
   isLegacyOverviewCamera,
+  sequenceFocusForViewport,
   TURKIYE_BOUNDS,
   turkiyeOverviewForViewport,
 } from '@/lib/map/turkiye-overview';
 import type { CatalogEvent } from '@/shared/schemas';
 import type { MapBounds, MapCamera } from '@/shared/atlas-state';
+import type { SequenceMembership } from '@/lib/map/sequence-style';
 
 const DEFAULT_STYLE = 'https://tiles.openfreemap.org/styles/fiord';
 const TERRAIN_TILEJSON = 'https://tiles.mapterhorn.com/tilejson.json';
@@ -27,7 +29,10 @@ const FAULTS_SELECTED_LAYER = 'atlas-active-faults-selected';
 const FAULTS_URL = '/data/faults/gem-active-faults-turkiye.pmtiles';
 const EVENTS_SOURCE = 'atlas-events';
 const EVENTS_GLOW_LAYER = 'atlas-events-glow';
+const EVENTS_SEQUENCE_GLOW_LAYER = 'atlas-events-sequence-glow';
 const EVENTS_LAYER = 'atlas-events-points';
+const EVENTS_SEQUENCE_RING_LAYER = 'atlas-events-sequence-rings';
+const EVENTS_SEQUENCE_SELECTED_LAYER = 'atlas-events-sequence-selected';
 const EVENTS_LABEL_LAYER = 'atlas-events-labels';
 const EVENTS_SELECTED_LAYER = 'atlas-events-selected';
 const TURKIYE_CENTER: [number, number] = [35.35, 39.05];
@@ -66,7 +71,10 @@ function createCircleImage(size: number) {
   return { width: size, height: size, data };
 }
 
-function eventGeoJson(events: CatalogEvent[]) {
+function eventGeoJson(
+  events: CatalogEvent[],
+  sequenceMembership: Map<string, SequenceMembership>,
+) {
   return {
     type: 'FeatureCollection' as const,
     features: events.map((event) => ({
@@ -81,6 +89,8 @@ function eventGeoJson(events: CatalogEvent[]) {
         magnitude: event.magnitude ?? 0,
         depthKm: event.depthKm ?? -1,
         place: event.place ?? 'Unknown location',
+        sequenceId: sequenceMembership.get(event.id)?.sequenceId ?? '',
+        sequenceColor: sequenceMembership.get(event.id)?.color ?? '#67e8f9',
       },
     })),
   };
@@ -93,9 +103,11 @@ type MapCanvasProps = {
   faultOpacity: number;
   initialCamera: MapCamera | null;
   selectedEventId: string | null;
+  selectedSequenceId: string | null;
+  sequenceMembership: Map<string, SequenceMembership>;
   nearestFaultId: string | null;
   onSelectEvent: (eventId: string) => void;
-  onViewportChange: (bounds: MapBounds) => void;
+  onViewportChange: (bounds: MapBounds, updateSelection: boolean) => void;
   onCameraChange: (camera: MapCamera, userInitiated: boolean) => void;
   onResetView: () => void;
 };
@@ -107,6 +119,8 @@ export function MapCanvas({
   faultOpacity,
   initialCamera,
   selectedEventId,
+  selectedSequenceId,
+  sequenceMembership,
   nearestFaultId,
   onSelectEvent,
   onViewportChange,
@@ -117,6 +131,7 @@ export function MapCanvas({
   const mapRef = useRef<MapLibreMap | null>(null);
   const initialCameraRef = useRef(initialCamera);
   const eventsRef = useRef(events);
+  const sequenceMembershipRef = useRef(sequenceMembership);
   const onSelectEventRef = useRef(onSelectEvent);
   const onViewportChangeRef = useRef(onViewportChange);
   const onCameraChangeRef = useRef(onCameraChange);
@@ -125,6 +140,7 @@ export function MapCanvas({
   const overviewModeRef = useRef(
     !initialCamera || isLegacyOverviewCamera(initialCamera),
   );
+  const updateViewportOnNextMoveEndRef = useRef(true);
   const [mapState, setMapState] = useState<'loading' | 'ready' | 'unavailable'>(
     'loading',
   );
@@ -135,10 +151,22 @@ export function MapCanvas({
     events.find((event) => event.id === selectedEventId) ?? null;
   const selectedEventLatitude = selectedEvent?.latitude ?? null;
   const selectedEventLongitude = selectedEvent?.longitude ?? null;
+  const selectedSequenceEvents = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          sequenceMembership.get(event.id)?.sequenceId === selectedSequenceId,
+      ),
+    [events, selectedSequenceId, sequenceMembership],
+  );
 
   useEffect(() => {
     eventsRef.current = events;
   }, [events]);
+
+  useEffect(() => {
+    sequenceMembershipRef.current = sequenceMembership;
+  }, [sequenceMembership]);
 
   useEffect(() => {
     onSelectEventRef.current = onSelectEvent;
@@ -167,6 +195,7 @@ export function MapCanvas({
     let cameraChangedByUser = false;
     const markCameraInteraction = () => {
       cameraChangedByUser = true;
+      updateViewportOnNextMoveEndRef.current = true;
       overviewModeRef.current = false;
     };
 
@@ -395,7 +424,10 @@ export function MapCanvas({
 
           map.addSource(EVENTS_SOURCE, {
             type: 'geojson',
-            data: eventGeoJson(eventsRef.current),
+            data: eventGeoJson(
+              eventsRef.current,
+              sequenceMembershipRef.current,
+            ),
           });
           map.addLayer({
             id: EVENTS_GLOW_LAYER,
@@ -454,6 +486,79 @@ export function MapCanvas({
               'circle-stroke-width': 1.25,
             },
           });
+          map.addLayer(
+            {
+              id: EVENTS_SEQUENCE_GLOW_LAYER,
+              type: 'circle',
+              source: EVENTS_SOURCE,
+              filter: ['!=', ['get', 'sequenceId'], ''],
+              paint: {
+                'circle-blur': 0.62,
+                'circle-color': ['get', 'sequenceColor'],
+                'circle-opacity': 0.42,
+                'circle-radius': [
+                  'interpolate',
+                  ['linear'],
+                  ['get', 'magnitude'],
+                  0,
+                  11,
+                  3,
+                  17,
+                  5,
+                  27,
+                ],
+              },
+            },
+            EVENTS_LAYER,
+          );
+          map.addLayer({
+            id: EVENTS_SEQUENCE_RING_LAYER,
+            type: 'circle',
+            source: EVENTS_SOURCE,
+            filter: ['!=', ['get', 'sequenceId'], ''],
+            paint: {
+              'circle-color': 'rgba(0,0,0,0)',
+              'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['get', 'magnitude'],
+                0,
+                6,
+                3,
+                9,
+                5,
+                13,
+              ],
+              'circle-stroke-color': ['get', 'sequenceColor'],
+              'circle-stroke-opacity': 0.95,
+              'circle-stroke-width': 2,
+            },
+          });
+          map.addLayer(
+            {
+              id: EVENTS_SEQUENCE_SELECTED_LAYER,
+              type: 'circle',
+              source: EVENTS_SOURCE,
+              filter: ['==', ['get', 'sequenceId'], ''],
+              paint: {
+                'circle-blur': 0.52,
+                'circle-color': ['get', 'sequenceColor'],
+                'circle-opacity': 0.68,
+                'circle-radius': [
+                  'interpolate',
+                  ['linear'],
+                  ['get', 'magnitude'],
+                  0,
+                  15,
+                  3,
+                  22,
+                  5,
+                  34,
+                ],
+              },
+            },
+            EVENTS_LAYER,
+          );
           map.addLayer({
             id: EVENTS_SELECTED_LAYER,
             type: 'circle',
@@ -502,12 +607,15 @@ export function MapCanvas({
           const emitMapState = () => {
             const bounds = map.getBounds();
             const center = map.getCenter();
-            onViewportChangeRef.current({
-              minLat: Math.max(-90, bounds.getSouth()),
-              maxLat: Math.min(90, bounds.getNorth()),
-              minLon: Math.max(-180, bounds.getWest()),
-              maxLon: Math.min(180, bounds.getEast()),
-            });
+            onViewportChangeRef.current(
+              {
+                minLat: Math.max(-90, bounds.getSouth()),
+                maxLat: Math.min(90, bounds.getNorth()),
+                minLon: Math.max(-180, bounds.getWest()),
+                maxLon: Math.min(180, bounds.getEast()),
+              },
+              updateViewportOnNextMoveEndRef.current,
+            );
             onCameraChangeRef.current(
               {
                 longitude: center.lng,
@@ -519,6 +627,7 @@ export function MapCanvas({
               cameraChangedByUser,
             );
             cameraChangedByUser = false;
+            updateViewportOnNextMoveEndRef.current = false;
           };
 
           map.on('movestart', (event) => {
@@ -561,6 +670,7 @@ export function MapCanvas({
 
           if (useOpeningView) {
             window.requestAnimationFrame(() => {
+              updateViewportOnNextMoveEndRef.current = true;
               fitTurkiyeOverview(map, animateOpening ? 1_700 : 0);
             });
           }
@@ -600,8 +710,11 @@ export function MapCanvas({
   useEffect(() => {
     const map = mapRef.current;
     const source = map?.getSource(EVENTS_SOURCE);
-    if (source) (source as GeoJSONSource).setData(eventGeoJson(events));
-  }, [events]);
+    if (source)
+      (source as GeoJSONSource).setData(
+        eventGeoJson(events, sequenceMembership),
+      );
+  }, [events, sequenceMembership]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -609,7 +722,10 @@ export function MapCanvas({
     const visibility = eventsVisible ? 'visible' : 'none';
     for (const layer of [
       EVENTS_GLOW_LAYER,
+      EVENTS_SEQUENCE_GLOW_LAYER,
       EVENTS_LAYER,
+      EVENTS_SEQUENCE_RING_LAYER,
+      EVENTS_SEQUENCE_SELECTED_LAYER,
       EVENTS_SELECTED_LAYER,
       EVENTS_LABEL_LAYER,
     ]) {
@@ -617,6 +733,51 @@ export function MapCanvas({
         map.setLayoutProperty(layer, 'visibility', visibility);
     }
   }, [eventsVisible, mapState]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.getLayer(EVENTS_SEQUENCE_SELECTED_LAYER)) return;
+    map.setFilter(EVENTS_SEQUENCE_SELECTED_LAYER, [
+      '==',
+      ['get', 'sequenceId'],
+      selectedSequenceId ?? '',
+    ]);
+
+    if (!selectedSequenceId || selectedSequenceEvents.length === 0) return;
+    overviewModeRef.current = false;
+    const longitudes = selectedSequenceEvents.map((event) => event.longitude);
+    const latitudes = selectedSequenceEvents.map((event) => event.latitude);
+    const minimumLongitude = Math.min(...longitudes);
+    const maximumLongitude = Math.max(...longitudes);
+    const minimumLatitude = Math.min(...latitudes);
+    const maximumLatitude = Math.max(...latitudes);
+    const longitudePadding = Math.max(
+      0.08,
+      (maximumLongitude - minimumLongitude) * 0.08,
+    );
+    const latitudePadding = Math.max(
+      0.06,
+      (maximumLatitude - minimumLatitude) * 0.08,
+    );
+    const container = map.getContainer();
+    const focus = sequenceFocusForViewport(
+      container.clientWidth,
+      container.clientHeight,
+    );
+    map.fitBounds(
+      [
+        [
+          minimumLongitude - longitudePadding,
+          minimumLatitude - latitudePadding,
+        ],
+        [
+          maximumLongitude + longitudePadding,
+          maximumLatitude + latitudePadding,
+        ],
+      ],
+      { ...focus, duration: 850 },
+    );
+  }, [mapState, selectedSequenceEvents, selectedSequenceId, terrainEnabled]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -724,6 +885,7 @@ export function MapCanvas({
     const map = mapRef.current;
     if (!map) return;
     overviewModeRef.current = true;
+    updateViewportOnNextMoveEndRef.current = true;
     onResetViewRef.current();
     if (terrainEnabled) fitTurkiyeOverview(map, 900);
     else {

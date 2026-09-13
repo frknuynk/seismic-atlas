@@ -7,7 +7,7 @@ import {
 } from '@/lib/science/catalog-analysis';
 import type { CatalogEvent } from '@/shared/schemas';
 
-type AnalysisState =
+export type CatalogAnalysisState =
   | { status: 'blocked'; analysis: null }
   | { status: 'loading'; analysis: null }
   | { status: 'ready'; analysis: CatalogAnalysis }
@@ -16,7 +16,7 @@ type AnalysisState =
 
 export function useCatalogAnalysis(events: CatalogEvent[], enabled = true) {
   const analysisKey = useMemo(() => catalogAnalysisKey(events), [events]);
-  const [state, setState] = useState<AnalysisState>(() =>
+  const [state, setState] = useState<CatalogAnalysisState>(() =>
     enabled
       ? { status: 'loading', analysis: null }
       : { status: 'blocked', analysis: null },

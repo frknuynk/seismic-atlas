@@ -40,8 +40,10 @@ import { useEventDetail } from '@/hooks/use-event-detail';
 import { useNearestFault } from '@/hooks/use-nearest-fault';
 import { useRecentEvents } from '@/hooks/use-recent-events';
 import { useCatalogQuality } from '@/hooks/use-catalog-quality';
+import { useCatalogAnalysis } from '@/hooks/use-catalog-analysis';
 import { eventInTimelineWindow } from '@/lib/timeline';
 import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
+import { sequenceMembership } from '@/lib/map/sequence-style';
 import type { SourceHealthResponse } from '@/shared/schemas';
 import {
   type AtlasFilters,
@@ -143,6 +145,10 @@ function parseInitialState(search: InitialSearch) {
   const timelineStart = parseNumber(search.t0);
   const timelineEnd = parseNumber(search.t1);
   const mode: AtlasMode = search.mode === 'lab' ? 'lab' : 'explore';
+  const sequence =
+    mode === 'lab' && !event && typeof search.sequence === 'string'
+      ? search.sequence
+      : null;
 
   const parsedCamera =
     longitude !== null &&
@@ -175,6 +181,7 @@ function parseInitialState(search: InitialSearch) {
         ? { startMs: timelineStart, endMs: timelineEnd }
         : null,
     mode,
+    sequence,
     camera: isLegacyOverviewCamera(parsedCamera) ? null : parsedCamera,
   };
 }
@@ -203,6 +210,9 @@ export function AtlasShell({
   const [selectedEventId, setSelectedEventId] = useState<string | null>(
     initialState.event,
   );
+  const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(
+    initialState.sequence,
+  );
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'ready'>(
     'idle',
   );
@@ -226,6 +236,26 @@ export function AtlasShell({
         : events,
     [events, selectedTimeWindow],
   );
+  const catalogAnalysis = useCatalogAnalysis(
+    selectedEvents,
+    mode === 'lab' && completeness.complete,
+  );
+  const sequenceCandidates = useMemo(
+    () => catalogAnalysis.analysis?.sequences.candidates ?? [],
+    [catalogAnalysis.analysis],
+  );
+  const activeSequenceId =
+    selectedSequenceId &&
+    (catalogAnalysis.status !== 'ready' ||
+      sequenceCandidates.some(
+        (candidate) => candidate.id === selectedSequenceId,
+      ))
+      ? selectedSequenceId
+      : null;
+  const mapSequenceMembership = useMemo(
+    () => sequenceMembership(sequenceCandidates),
+    [sequenceCandidates],
+  );
   const mapEvents = useMemo(() => {
     const activeWindow = previewTimeWindow ?? selectedTimeWindow;
     return activeWindow
@@ -247,6 +277,7 @@ export function AtlasShell({
     url.searchParams.set('minMag', String(filters.minMagnitude));
     url.searchParams.set('maxDepth', String(filters.maxDepth));
     if (selectedEventId) url.searchParams.set('event', selectedEventId);
+    if (activeSequenceId) url.searchParams.set('sequence', activeSequenceId);
     if (!eventsVisible) url.searchParams.set('earthquakes', 'off');
     if (!faultsVisible) url.searchParams.set('faults', 'off');
     url.searchParams.set('faultOpacity', faultOpacity.toFixed(2));
@@ -272,6 +303,7 @@ export function AtlasShell({
     mode,
     selectedTimeWindow,
     selectedEventId,
+    activeSequenceId,
   ]);
 
   function handleFiltersChange(nextFilters: AtlasFilters) {
@@ -285,12 +317,32 @@ export function AtlasShell({
   function handleSearchSelection(eventId: string) {
     setSelectedTimeWindow(null);
     setPreviewTimeWindow(null);
+    handleEventSelection(eventId);
+  }
+
+  function handleEventSelection(eventId: string) {
+    setSelectedSequenceId(null);
     setSelectedEventId(eventId);
   }
 
-  const handleBoundsChange = useCallback((nextBounds: MapBounds) => {
-    setBounds(nextBounds);
-  }, []);
+  function handleSequenceSelection(sequenceId: string) {
+    setSelectedEventId(null);
+    setSelectedSequenceId((current) =>
+      current === sequenceId ? null : sequenceId,
+    );
+  }
+
+  function handleModeChange(nextMode: AtlasMode) {
+    setMode(nextMode);
+    if (nextMode !== 'lab') setSelectedSequenceId(null);
+  }
+
+  const handleBoundsChange = useCallback(
+    (nextBounds: MapBounds, updateSelection: boolean) => {
+      if (updateSelection) setBounds(nextBounds);
+    },
+    [],
+  );
   const handleCameraChange = useCallback(
     (nextCamera: MapCamera, userInitiated: boolean) => {
       if (userInitiated) setCamera(nextCamera);
@@ -327,7 +379,7 @@ export function AtlasShell({
 
         <Tabs
           value={mode}
-          onValueChange={(value) => setMode(value as AtlasMode)}
+          onValueChange={(value) => handleModeChange(value as AtlasMode)}
           className="shrink-0"
         >
           <TabsList aria-label="Atlas mode" className="bg-muted/70">
@@ -406,7 +458,7 @@ export function AtlasShell({
                     <button
                       key={event.id}
                       type="button"
-                      onClick={() => setSelectedEventId(event.id)}
+                      onClick={() => handleEventSelection(event.id)}
                       className="flex w-full items-center gap-3 rounded-md border bg-card/45 p-2.5 text-left transition hover:border-primary/40 hover:bg-card"
                     >
                       <span className="grid size-9 shrink-0 place-items-center rounded-full border border-cyan-200/30 bg-cyan-300/10 font-mono text-sm font-semibold text-cyan-200">
@@ -483,8 +535,10 @@ export function AtlasShell({
             faultOpacity={faultOpacity}
             initialCamera={initialState.camera}
             selectedEventId={selectedEventId}
+            selectedSequenceId={activeSequenceId}
+            sequenceMembership={mapSequenceMembership}
             nearestFaultId={nearestFault?.id ?? null}
-            onSelectEvent={setSelectedEventId}
+            onSelectEvent={handleEventSelection}
             onViewportChange={handleBoundsChange}
             onCameraChange={handleCameraChange}
             onResetView={() => setCamera(null)}
@@ -554,6 +608,9 @@ export function AtlasShell({
               bounds={bounds}
               timelineWindow={selectedTimeWindow}
               completeness={completeness}
+              state={catalogAnalysis}
+              selectedSequenceId={activeSequenceId}
+              onSelectSequence={handleSequenceSelection}
             />
           ) : (
             <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">

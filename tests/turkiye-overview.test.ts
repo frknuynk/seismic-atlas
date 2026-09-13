@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   eventFocusForViewport,
   isLegacyOverviewCamera,
+  sequenceFocusForViewport,
   turkiyeOverviewForViewport,
 } from '@/lib/map/turkiye-overview';
 
@@ -63,5 +64,16 @@ describe('Türkiye overview framing', () => {
     expect(focus.offset[0]).toBe(0);
     expect(focus.offset[1]).toBe(-130);
     expect(focus.pitch).toBe(24);
+  });
+
+  it('reserves the Catalog Lab panel when fitting a sequence', () => {
+    const compact = sequenceFocusForViewport(390, 844);
+    const desktop = sequenceFocusForViewport(1_200, 900);
+
+    expect(compact.padding.bottom).toBeGreaterThan(500);
+    expect(compact.maxZoom).toBe(8);
+    expect(compact.offset).toEqual([0, -20]);
+    expect(desktop.padding.bottom).toBe(450);
+    expect(desktop.maxZoom).toBe(9);
   });
 });

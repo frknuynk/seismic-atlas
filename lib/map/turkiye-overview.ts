@@ -72,3 +72,24 @@ export function eventFocusForViewport(
     pitch: mapHeight < 620 ? 18 : viewportWidth < 720 ? 24 : 30,
   };
 }
+
+export function sequenceFocusForViewport(width: number, height: number) {
+  const compact = width < 720;
+  const top = clamp(height * 0.07, 36, 64);
+  const bottom = compact
+    ? clamp(height * 0.68, 220, Math.max(220, height - 160))
+    : clamp(height * 0.5, 220, Math.max(220, height - 220));
+
+  return {
+    padding: {
+      top,
+      right: compact ? 24 : 64,
+      bottom,
+      left: compact ? 24 : 64,
+    },
+    maxZoom: compact ? 8 : 9,
+    offset: [0, compact ? -20 : 0] as [number, number],
+    pitch: height < 620 ? 12 : compact ? 18 : 24,
+    bearing: 0,
+  };
+}

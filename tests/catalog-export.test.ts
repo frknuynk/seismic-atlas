@@ -65,6 +65,17 @@ describe('catalog exports', () => {
           completeness: 'not-estimated',
           bValue: 'not-computed',
         },
+        sequenceCandidates: {
+          version: 'sequence-candidates-v1',
+          method: 'spatiotemporal-single-linkage',
+          parameters: {
+            maxNeighborDistanceKm: 30,
+            maxNeighborTimeHours: 24,
+            minEvents: 3,
+          },
+          candidateCount: 0,
+          clusteredEventCount: 0,
+        },
         declustering: 'none',
       },
     });

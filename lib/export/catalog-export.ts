@@ -123,6 +123,13 @@ export function analysisManifest(
         completeness: 'not-estimated',
         bValue: 'not-computed',
       },
+      sequenceCandidates: {
+        version: analysis.sequences.version,
+        method: analysis.sequences.method,
+        parameters: analysis.sequences.parameters,
+        candidateCount: analysis.sequences.candidateCount,
+        clusteredEventCount: analysis.sequences.clusteredEventCount,
+      },
       declustering: 'none',
     },
     limitations: analysis.quality.messages,
