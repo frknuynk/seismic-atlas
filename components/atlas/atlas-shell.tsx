@@ -213,6 +213,9 @@ export function AtlasShell({
   const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(
     initialState.sequence,
   );
+  const [focusedSequenceEventId, setFocusedSequenceEventId] = useState<
+    string | null
+  >(null);
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'ready'>(
     'idle',
   );
@@ -252,6 +255,14 @@ export function AtlasShell({
       ))
       ? selectedSequenceId
       : null;
+  const activeSequence = sequenceCandidates.find(
+    (candidate) => candidate.id === activeSequenceId,
+  );
+  const activeFocusedSequenceEventId = activeSequence?.eventIds.includes(
+    focusedSequenceEventId ?? '',
+  )
+    ? focusedSequenceEventId
+    : null;
   const mapSequenceMembership = useMemo(
     () => sequenceMembership(sequenceCandidates),
     [sequenceCandidates],
@@ -322,19 +333,30 @@ export function AtlasShell({
 
   function handleEventSelection(eventId: string) {
     setSelectedSequenceId(null);
+    setFocusedSequenceEventId(null);
     setSelectedEventId(eventId);
   }
 
   function handleSequenceSelection(sequenceId: string) {
     setSelectedEventId(null);
+    setFocusedSequenceEventId(null);
     setSelectedSequenceId((current) =>
       current === sequenceId ? null : sequenceId,
     );
   }
 
+  function handleFocusSequenceEvent(eventId: string) {
+    if (activeSequence?.eventIds.includes(eventId)) {
+      setFocusedSequenceEventId(eventId);
+    }
+  }
+
   function handleModeChange(nextMode: AtlasMode) {
     setMode(nextMode);
-    if (nextMode !== 'lab') setSelectedSequenceId(null);
+    if (nextMode !== 'lab') {
+      setSelectedSequenceId(null);
+      setFocusedSequenceEventId(null);
+    }
   }
 
   const handleBoundsChange = useCallback(
@@ -534,7 +556,10 @@ export function AtlasShell({
             faultsVisible={faultsVisible}
             faultOpacity={faultOpacity}
             initialCamera={initialState.camera}
-            selectedEventId={selectedEventId}
+            selectedEventId={activeFocusedSequenceEventId ?? selectedEventId}
+            eventFocusMode={
+              activeFocusedSequenceEventId ? 'sequence' : 'detail'
+            }
             selectedSequenceId={activeSequenceId}
             sequenceMembership={mapSequenceMembership}
             nearestFaultId={nearestFault?.id ?? null}
@@ -610,7 +635,9 @@ export function AtlasShell({
               completeness={completeness}
               state={catalogAnalysis}
               selectedSequenceId={activeSequenceId}
+              focusedSequenceEventId={activeFocusedSequenceEventId}
               onSelectSequence={handleSequenceSelection}
+              onFocusSequenceEvent={handleFocusSequenceEvent}
             />
           ) : (
             <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">

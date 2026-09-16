@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Braces,
   CheckCircle2,
   Download,
@@ -11,6 +12,8 @@ import {
   LoaderCircle,
   ScanSearch,
 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { SequenceInspector } from '@/components/atlas/sequence-inspector';
 import {
   Bar,
   BarChart,
@@ -80,7 +83,9 @@ type CatalogLabProps = {
   completeness: CatalogCompleteness;
   state: CatalogAnalysisState;
   selectedSequenceId: string | null;
+  focusedSequenceEventId: string | null;
   onSelectSequence: (sequenceId: string) => void;
+  onFocusSequenceEvent: (eventId: string) => void;
 };
 
 export function CatalogLab({
@@ -91,9 +96,26 @@ export function CatalogLab({
   completeness,
   state,
   selectedSequenceId,
+  focusedSequenceEventId,
   onSelectSequence,
+  onFocusSequenceEvent,
 }: CatalogLabProps) {
   const analysis = state.analysis;
+  const pendingFocus = useRef<'inspector' | 'candidates' | null>(null);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
+  const firstCandidateRef = useRef<HTMLButtonElement>(null);
+  const selectedCandidate = analysis?.sequences.candidates.find(
+    (candidate) => candidate.id === selectedSequenceId,
+  );
+  useEffect(() => {
+    if (pendingFocus.current === 'inspector' && selectedCandidate) {
+      pendingFocus.current = null;
+      backButtonRef.current?.focus();
+    } else if (pendingFocus.current === 'candidates' && !selectedCandidate) {
+      pendingFocus.current = null;
+      firstCandidateRef.current?.focus();
+    }
+  }, [selectedCandidate]);
   const range =
     analysis?.firstEventTime && analysis.lastEventTime
       ? `${dateTimeFormat.format(new Date(analysis.firstEventTime))} – ${dateTimeFormat.format(new Date(analysis.lastEventTime))}`
@@ -104,7 +126,7 @@ export function CatalogLab({
   return (
     <section
       aria-labelledby="catalog-lab-title"
-      className="absolute inset-x-3 bottom-3 z-10 flex max-h-[72vh] min-h-72 flex-col overflow-hidden rounded-xl border border-primary/25 bg-background/95 shadow-[0_24px_80px_rgb(0_0_0/48%)] backdrop-blur-xl md:inset-x-4 md:h-[46vh] md:min-h-80"
+      className="absolute inset-x-3 bottom-3 z-10 flex h-[72vh] min-h-72 flex-col overflow-hidden rounded-xl border border-primary/25 bg-background/95 shadow-[0_24px_80px_rgb(0_0_0/48%)] backdrop-blur-xl md:inset-x-4 md:h-[46vh] md:min-h-80"
     >
       <div className="flex shrink-0 flex-col gap-2 border-b border-primary/15 bg-primary/[0.04] px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3 md:px-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -117,9 +139,11 @@ export function CatalogLab({
                 id="catalog-lab-title"
                 className="whitespace-nowrap font-semibold"
               >
-                Catalog Lab
+                {selectedCandidate ? 'Sequence Inspector' : 'Catalog Lab'}
               </h2>
-              <Badge variant="outline">Viewport subset</Badge>
+              <Badge variant="outline">
+                {selectedCandidate ? 'Viewport candidate' : 'Viewport subset'}
+              </Badge>
               {completeness.complete && completeness.total !== null && (
                 <Badge className="border-emerald-300/25 bg-emerald-300/10 text-emerald-200">
                   <CheckCircle2 className="size-3" aria-hidden="true" />
@@ -134,68 +158,96 @@ export function CatalogLab({
               )}
             </div>
             <p className="truncate text-xs text-muted-foreground">
-              {range} · AFAD preferred solutions
+              {selectedCandidate
+                ? `${selectedCandidate.eventCount} observed events · AFAD preferred solutions`
+                : `${range} · AFAD preferred solutions`}
             </p>
           </div>
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label="Download catalog as CSV"
-            disabled={
-              !analysis || events.length === 0 || state.status === 'refreshing'
-            }
-            onClick={() =>
-              downloadFile(`${fileStem}.csv`, catalogCsv(events), 'text/csv')
-            }
-          >
-            <Download className="size-3.5" aria-hidden="true" />
-            <span className="hidden lg:inline">CSV</span>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label="Download catalog as GeoJSON"
-            disabled={
-              !analysis || events.length === 0 || state.status === 'refreshing'
-            }
-            onClick={() =>
-              downloadFile(
-                `${fileStem}.geojson`,
-                JSON.stringify(catalogGeoJson(events), null, 2),
-                'application/geo+json',
-              )
-            }
-          >
-            <FileJson2 className="size-3.5" aria-hidden="true" />
-            <span className="hidden lg:inline">GeoJSON</span>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            aria-label="Download reproducible methods manifest"
-            disabled={!analysis || state.status === 'refreshing'}
-            onClick={() => {
-              if (!analysis) return;
-              downloadFile(
-                `${fileStem}-methods.json`,
-                JSON.stringify(
-                  analysisManifest(events, analysis, exportContext),
-                  null,
-                  2,
-                ),
-                'application/json',
-              );
-            }}
-          >
-            <Braces className="size-3.5" aria-hidden="true" />
-            <span className="hidden lg:inline">Methods</span>
-          </Button>
+          {selectedCandidate ? (
+            <Button
+              ref={backButtonRef}
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                pendingFocus.current = 'candidates';
+                onSelectSequence(selectedCandidate.id);
+              }}
+            >
+              <ArrowLeft className="size-3.5" aria-hidden="true" />
+              All candidates
+            </Button>
+          ) : (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label="Download catalog as CSV"
+                disabled={
+                  !analysis ||
+                  events.length === 0 ||
+                  state.status === 'refreshing'
+                }
+                onClick={() =>
+                  downloadFile(
+                    `${fileStem}.csv`,
+                    catalogCsv(events),
+                    'text/csv',
+                  )
+                }
+              >
+                <Download className="size-3.5" aria-hidden="true" />
+                <span className="hidden lg:inline">CSV</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label="Download catalog as GeoJSON"
+                disabled={
+                  !analysis ||
+                  events.length === 0 ||
+                  state.status === 'refreshing'
+                }
+                onClick={() =>
+                  downloadFile(
+                    `${fileStem}.geojson`,
+                    JSON.stringify(catalogGeoJson(events), null, 2),
+                    'application/geo+json',
+                  )
+                }
+              >
+                <FileJson2 className="size-3.5" aria-hidden="true" />
+                <span className="hidden lg:inline">GeoJSON</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label="Download reproducible methods manifest"
+                disabled={!analysis || state.status === 'refreshing'}
+                onClick={() => {
+                  if (!analysis) return;
+                  downloadFile(
+                    `${fileStem}-methods.json`,
+                    JSON.stringify(
+                      analysisManifest(events, analysis, exportContext),
+                      null,
+                      2,
+                    ),
+                    'application/json',
+                  );
+                }}
+              >
+                <Braces className="size-3.5" aria-hidden="true" />
+                <span className="hidden lg:inline">Methods</span>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -234,7 +286,17 @@ export function CatalogLab({
         </div>
       )}
 
-      {analysis && (
+      {analysis && selectedCandidate && (
+        <SequenceInspector
+          key={selectedCandidate.id}
+          candidate={selectedCandidate}
+          events={events}
+          focusedEventId={focusedSequenceEventId}
+          onFocusEvent={onFocusSequenceEvent}
+        />
+      )}
+
+      {analysis && !selectedCandidate && (
         <ScrollArea className="atlas-scroll-area min-h-0 flex-1">
           <div className="p-3 md:p-4">
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -316,10 +378,14 @@ export function CatalogLab({
                     const color = sequenceColor(index);
                     return (
                       <button
+                        ref={index === 0 ? firstCandidateRef : undefined}
                         key={candidate.id}
                         type="button"
                         aria-pressed={selected}
-                        onClick={() => onSelectSequence(candidate.id)}
+                        onClick={() => {
+                          pendingFocus.current = 'inspector';
+                          onSelectSequence(candidate.id);
+                        }}
                         className={cn(
                           'rounded-md border bg-background/55 p-3 text-left transition hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                           selected && 'border-primary/70 bg-primary/[0.08]',

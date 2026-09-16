@@ -93,3 +93,16 @@ export function sequenceFocusForViewport(width: number, height: number) {
     bearing: 0,
   };
 }
+
+export function sequenceEventFocusForViewport(width: number, height: number) {
+  const sequenceFocus = sequenceFocusForViewport(width, height);
+  const visibleHeight =
+    height - sequenceFocus.padding.top - sequenceFocus.padding.bottom;
+  const targetY =
+    sequenceFocus.padding.top + visibleHeight * (width < 720 ? 0.3 : 0.45);
+
+  return {
+    offset: [0, targetY - height / 2] as [number, number],
+    pitch: sequenceFocus.pitch,
+  };
+}

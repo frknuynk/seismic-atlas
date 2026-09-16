@@ -3,6 +3,7 @@ import {
   eventFocusForViewport,
   isLegacyOverviewCamera,
   sequenceFocusForViewport,
+  sequenceEventFocusForViewport,
   turkiyeOverviewForViewport,
 } from '@/lib/map/turkiye-overview';
 
@@ -75,5 +76,18 @@ describe('Türkiye overview framing', () => {
     expect(compact.offset).toEqual([0, -20]);
     expect(desktop.padding.bottom).toBe(450);
     expect(desktop.maxZoom).toBe(9);
+  });
+
+  it('focuses a sequence member in the unobscured map above the Lab panel', () => {
+    const compact = sequenceEventFocusForViewport(390, 844);
+    const desktop = sequenceEventFocusForViewport(1_200, 900);
+
+    expect(compact.offset[0]).toBe(0);
+    expect(422 + compact.offset[1]).toBeGreaterThan(80);
+    expect(422 + compact.offset[1]).toBeLessThan(140);
+    expect(desktop.offset[0]).toBe(0);
+    expect(450 + desktop.offset[1]).toBeLessThan(450);
+    expect(compact.pitch).toBe(18);
+    expect(desktop.pitch).toBe(24);
   });
 });

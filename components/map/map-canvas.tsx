@@ -9,12 +9,14 @@ import {
   eventFocusForViewport,
   isLegacyOverviewCamera,
   sequenceFocusForViewport,
+  sequenceEventFocusForViewport,
   TURKIYE_BOUNDS,
   turkiyeOverviewForViewport,
 } from '@/lib/map/turkiye-overview';
 import type { CatalogEvent } from '@/shared/schemas';
 import type { MapBounds, MapCamera } from '@/shared/atlas-state';
 import type { SequenceMembership } from '@/lib/map/sequence-style';
+import { cn } from '@/lib/utils';
 
 const DEFAULT_STYLE = 'https://tiles.openfreemap.org/styles/fiord';
 const TERRAIN_TILEJSON = 'https://tiles.mapterhorn.com/tilejson.json';
@@ -103,6 +105,7 @@ type MapCanvasProps = {
   faultOpacity: number;
   initialCamera: MapCamera | null;
   selectedEventId: string | null;
+  eventFocusMode: 'detail' | 'sequence';
   selectedSequenceId: string | null;
   sequenceMembership: Map<string, SequenceMembership>;
   nearestFaultId: string | null;
@@ -119,6 +122,7 @@ export function MapCanvas({
   faultOpacity,
   initialCamera,
   selectedEventId,
+  eventFocusMode,
   selectedSequenceId,
   sequenceMembership,
   nearestFaultId,
@@ -853,11 +857,17 @@ export function MapCanvas({
           ? '1'
           : '0';
     };
-    const focus = eventFocusForViewport(
-      container.clientWidth,
-      container.clientHeight,
-      window.innerWidth,
-    );
+    const focus =
+      eventFocusMode === 'sequence'
+        ? sequenceEventFocusForViewport(
+            container.clientWidth,
+            container.clientHeight,
+          )
+        : eventFocusForViewport(
+            container.clientWidth,
+            container.clientHeight,
+            window.innerWidth,
+          );
 
     map.on('move', syncFocusBeacon);
     map.on('resize', syncFocusBeacon);
@@ -878,6 +888,7 @@ export function MapCanvas({
     selectedEventId,
     selectedEventLatitude,
     selectedEventLongitude,
+    eventFocusMode,
     terrainEnabled,
   ]);
 
@@ -940,13 +951,16 @@ export function MapCanvas({
           key={selectedEvent.id}
           ref={focusBeaconRef}
           data-selected-event-beacon=""
-          className="pointer-events-none fixed z-[60] hidden -translate-x-1/2 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-200 sm:grid"
+          className={cn(
+            'pointer-events-none fixed z-[60] -translate-x-1/2 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-200',
+            eventFocusMode === 'sequence' ? 'grid' : 'hidden sm:grid',
+          )}
           aria-hidden="true"
         >
           <span className="atlas-event-focus-ring absolute size-20 rounded-full border border-cyan-200/35 bg-cyan-300/10" />
           <span className="absolute size-12 rounded-full border border-cyan-100/60 bg-cyan-300/15 shadow-[0_0_32px_rgba(103,232,249,0.85)]" />
           <span className="relative size-4 rounded-full border-2 border-white bg-cyan-300 shadow-[0_0_0_5px_rgba(8,25,34,0.85),0_0_24px_rgba(255,255,255,0.95)]" />
-          <span className="absolute top-8 rounded-full border border-white/20 bg-[#07141d] px-2 py-1 font-mono text-xs font-semibold text-white shadow-xl">
+          <span className="absolute -top-12 rounded-full border border-white/20 bg-[#07141d] px-2 py-1 font-mono text-xs font-semibold text-white shadow-xl sm:top-8">
             M{selectedEvent.magnitude?.toFixed(1) ?? '—'}
           </span>
         </div>

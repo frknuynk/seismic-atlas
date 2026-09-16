@@ -2,7 +2,7 @@
 
 A map-first, provenance-aware seismic exploration workspace for Türkiye.
 
-Current development version: **0.6.0-alpha.0**.
+Current development version: **0.7.0-alpha.0**.
 
 Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
 schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
@@ -61,6 +61,17 @@ Candidate membership is rendered as a color-coded map overlay. Selecting a Lab
 candidate keeps the complete analysis subset stable, fits every member above
 the Lab panel on desktop and mobile, and stores the stable candidate identifier
 in the shareable URL.
+
+The first v0.7 Sequence Inspector slice opens a selected candidate as an
+explorable, chronological record. It shows the reported magnitude scatter and
+exact cumulative event count over time; selecting a member focuses its
+epicentre on the map without discarding the candidate or narrowing the verified
+catalog. Missing magnitudes are disclosed rather than imputed, and very dense
+charts are downsampled with the magnitude extremes and cumulative endpoint
+preserved. The member list loads in bounded pages for browser responsiveness.
+The inspector deliberately does not infer mainshocks, aftershocks, causation,
+hazard, or future seismicity. Playback and candidate-specific export are later
+v0.7 slices.
 
 ## Requirements
 

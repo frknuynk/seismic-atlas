@@ -208,7 +208,7 @@ export const ServiceHealthSchema = z.object({
   service: z.literal('seismic-atlas-api'),
   status: z.literal('ok'),
   phase: z.literal(1),
-  version: z.literal('0.5.0-alpha.0'),
+  version: z.literal('0.7.0-alpha.0'),
   databaseBinding: z.literal('DB'),
   timestamp: z.iso.datetime({ offset: true }),
 });
