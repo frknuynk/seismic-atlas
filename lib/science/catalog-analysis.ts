@@ -7,19 +7,34 @@ import {
 export const CATALOG_ANALYSIS_VERSION = 'catalog-analysis-v2';
 
 export function catalogAnalysisKey(events: CatalogEvent[]) {
-  return events
-    .map((event) =>
-      [
-        event.id,
-        event.originTime,
-        event.latitude,
-        event.longitude,
-        event.magnitude ?? '',
-        event.magnitudeType ?? '',
-        event.depthKm ?? '',
-      ].join('\u001f'),
-    )
-    .join('\u001e');
+  return JSON.stringify(
+    events.map((event) => [
+      event.id,
+      event.source,
+      event.sourceEventId,
+      event.originTime,
+      event.latitude,
+      event.longitude,
+      event.magnitude,
+      event.magnitudeType,
+      event.depthKm,
+      event.place,
+      event.revisionCount,
+    ]),
+  );
+}
+
+/** Compact change detector for the exact catalog snapshot analyzed by the worker. */
+export function catalogAnalysisFingerprint(events: CatalogEvent[]) {
+  const key = catalogAnalysisKey(events);
+  let first = 2_166_136_261;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < key.length; index += 1) {
+    const code = key.charCodeAt(index);
+    first = Math.imul(first ^ code, 16_777_619);
+    second = Math.imul(second ^ code, 2_246_822_519);
+  }
+  return `${events.length}:${key.length}:${(first >>> 0).toString(16)}:${(second >>> 0).toString(16)}`;
 }
 
 export type HistogramBin = {
@@ -42,6 +57,7 @@ export type FrequencyMagnitudePoint = {
 
 export type CatalogAnalysis = {
   version: typeof CATALOG_ANALYSIS_VERSION;
+  catalogFingerprint: string;
   eventCount: number;
   firstEventTime: string | null;
   lastEventTime: string | null;
@@ -208,6 +224,7 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
 
   return {
     version: CATALOG_ANALYSIS_VERSION,
+    catalogFingerprint: catalogAnalysisFingerprint(events),
     eventCount: events.length,
     firstEventTime:
       times.length > 0 ? new Date(Math.min(...times)).toISOString() : null,

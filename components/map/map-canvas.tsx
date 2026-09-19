@@ -16,6 +16,10 @@ import {
 import type { CatalogEvent } from '@/shared/schemas';
 import type { MapBounds, MapCamera } from '@/shared/atlas-state';
 import type { SequenceMembership } from '@/lib/map/sequence-style';
+import {
+  sequencePlaybackPhase,
+  type SequencePlaybackSnapshot,
+} from '@/lib/science/sequence-playback';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_STYLE = 'https://tiles.openfreemap.org/styles/fiord';
@@ -35,6 +39,7 @@ const EVENTS_SEQUENCE_GLOW_LAYER = 'atlas-events-sequence-glow';
 const EVENTS_LAYER = 'atlas-events-points';
 const EVENTS_SEQUENCE_RING_LAYER = 'atlas-events-sequence-rings';
 const EVENTS_SEQUENCE_SELECTED_LAYER = 'atlas-events-sequence-selected';
+const EVENTS_SEQUENCE_PLAYBACK_LAYER = 'atlas-events-sequence-playback';
 const EVENTS_LABEL_LAYER = 'atlas-events-labels';
 const EVENTS_SELECTED_LAYER = 'atlas-events-selected';
 const TURKIYE_CENTER: [number, number] = [35.35, 39.05];
@@ -76,25 +81,34 @@ function createCircleImage(size: number) {
 function eventGeoJson(
   events: CatalogEvent[],
   sequenceMembership: Map<string, SequenceMembership>,
+  sequencePlayback: SequencePlaybackSnapshot | null,
 ) {
   return {
     type: 'FeatureCollection' as const,
-    features: events.map((event) => ({
-      type: 'Feature' as const,
-      id: event.id,
-      geometry: {
-        type: 'Point' as const,
-        coordinates: [event.longitude, event.latitude],
-      },
-      properties: {
+    features: events.map((event) => {
+      const membership = sequenceMembership.get(event.id);
+      return {
+        type: 'Feature' as const,
         id: event.id,
-        magnitude: event.magnitude ?? 0,
-        depthKm: event.depthKm ?? -1,
-        place: event.place ?? 'Unknown location',
-        sequenceId: sequenceMembership.get(event.id)?.sequenceId ?? '',
-        sequenceColor: sequenceMembership.get(event.id)?.color ?? '#67e8f9',
-      },
-    })),
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [event.longitude, event.latitude],
+        },
+        properties: {
+          id: event.id,
+          magnitude: event.magnitude ?? 0,
+          depthKm: event.depthKm ?? -1,
+          place: event.place ?? 'Unknown location',
+          sequenceId: membership?.sequenceId ?? '',
+          sequenceColor: membership?.color ?? '#67e8f9',
+          sequencePlaybackState: sequencePlaybackPhase(
+            event.id,
+            membership?.sequenceId ?? '',
+            sequencePlayback,
+          ),
+        },
+      };
+    }),
   };
 }
 
@@ -108,6 +122,7 @@ type MapCanvasProps = {
   eventFocusMode: 'detail' | 'sequence';
   selectedSequenceId: string | null;
   sequenceMembership: Map<string, SequenceMembership>;
+  sequencePlayback: SequencePlaybackSnapshot | null;
   nearestFaultId: string | null;
   onSelectEvent: (eventId: string) => void;
   onViewportChange: (bounds: MapBounds, updateSelection: boolean) => void;
@@ -125,6 +140,7 @@ export function MapCanvas({
   eventFocusMode,
   selectedSequenceId,
   sequenceMembership,
+  sequencePlayback,
   nearestFaultId,
   onSelectEvent,
   onViewportChange,
@@ -136,6 +152,7 @@ export function MapCanvas({
   const initialCameraRef = useRef(initialCamera);
   const eventsRef = useRef(events);
   const sequenceMembershipRef = useRef(sequenceMembership);
+  const sequencePlaybackRef = useRef(sequencePlayback);
   const onSelectEventRef = useRef(onSelectEvent);
   const onViewportChangeRef = useRef(onViewportChange);
   const onCameraChangeRef = useRef(onCameraChange);
@@ -171,6 +188,10 @@ export function MapCanvas({
   useEffect(() => {
     sequenceMembershipRef.current = sequenceMembership;
   }, [sequenceMembership]);
+
+  useEffect(() => {
+    sequencePlaybackRef.current = sequencePlayback;
+  }, [sequencePlayback]);
 
   useEffect(() => {
     onSelectEventRef.current = onSelectEvent;
@@ -431,6 +452,7 @@ export function MapCanvas({
             data: eventGeoJson(
               eventsRef.current,
               sequenceMembershipRef.current,
+              sequencePlaybackRef.current,
             ),
           });
           map.addLayer({
@@ -440,7 +462,13 @@ export function MapCanvas({
             paint: {
               'circle-blur': 0.7,
               'circle-color': '#67e8f9',
-              'circle-opacity': 0.48,
+              'circle-opacity': [
+                'match',
+                ['get', 'sequencePlaybackState'],
+                'upcoming',
+                0.1,
+                0.48,
+              ],
               'circle-radius': [
                 'interpolate',
                 ['linear'],
@@ -486,7 +514,20 @@ export function MapCanvas({
                 16,
               ],
               'circle-stroke-color': '#ecfeff',
-              'circle-stroke-opacity': 0.9,
+              'circle-opacity': [
+                'match',
+                ['get', 'sequencePlaybackState'],
+                'upcoming',
+                0.18,
+                1,
+              ],
+              'circle-stroke-opacity': [
+                'match',
+                ['get', 'sequencePlaybackState'],
+                'upcoming',
+                0.22,
+                0.9,
+              ],
               'circle-stroke-width': 1.25,
             },
           });
@@ -499,7 +540,13 @@ export function MapCanvas({
               paint: {
                 'circle-blur': 0.62,
                 'circle-color': ['get', 'sequenceColor'],
-                'circle-opacity': 0.42,
+                'circle-opacity': [
+                  'match',
+                  ['get', 'sequencePlaybackState'],
+                  'upcoming',
+                  0.06,
+                  0.42,
+                ],
                 'circle-radius': [
                   'interpolate',
                   ['linear'],
@@ -534,7 +581,13 @@ export function MapCanvas({
                 13,
               ],
               'circle-stroke-color': ['get', 'sequenceColor'],
-              'circle-stroke-opacity': 0.95,
+              'circle-stroke-opacity': [
+                'match',
+                ['get', 'sequencePlaybackState'],
+                'upcoming',
+                0.16,
+                0.95,
+              ],
               'circle-stroke-width': 2,
             },
           });
@@ -547,7 +600,17 @@ export function MapCanvas({
               paint: {
                 'circle-blur': 0.52,
                 'circle-color': ['get', 'sequenceColor'],
-                'circle-opacity': 0.68,
+                'circle-opacity': [
+                  'match',
+                  ['get', 'sequencePlaybackState'],
+                  'upcoming',
+                  0.04,
+                  'revealed',
+                  0.34,
+                  'current',
+                  0.76,
+                  0.68,
+                ],
                 'circle-radius': [
                   'interpolate',
                   ['linear'],
@@ -563,6 +626,29 @@ export function MapCanvas({
             },
             EVENTS_LAYER,
           );
+          map.addLayer({
+            id: EVENTS_SEQUENCE_PLAYBACK_LAYER,
+            type: 'circle',
+            source: EVENTS_SOURCE,
+            filter: ['==', ['get', 'sequencePlaybackState'], 'current'],
+            paint: {
+              'circle-color': 'rgba(0,0,0,0)',
+              'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['get', 'magnitude'],
+                0,
+                12,
+                3,
+                16,
+                5,
+                22,
+              ],
+              'circle-stroke-color': '#ffffff',
+              'circle-stroke-opacity': 1,
+              'circle-stroke-width': 3,
+            },
+          });
           map.addLayer({
             id: EVENTS_SELECTED_LAYER,
             type: 'circle',
@@ -716,9 +802,9 @@ export function MapCanvas({
     const source = map?.getSource(EVENTS_SOURCE);
     if (source)
       (source as GeoJSONSource).setData(
-        eventGeoJson(events, sequenceMembership),
+        eventGeoJson(events, sequenceMembership, sequencePlayback),
       );
-  }, [events, sequenceMembership]);
+  }, [events, sequenceMembership, sequencePlayback]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -730,6 +816,7 @@ export function MapCanvas({
       EVENTS_LAYER,
       EVENTS_SEQUENCE_RING_LAYER,
       EVENTS_SEQUENCE_SELECTED_LAYER,
+      EVENTS_SEQUENCE_PLAYBACK_LAYER,
       EVENTS_SELECTED_LAYER,
       EVENTS_LABEL_LAYER,
     ]) {

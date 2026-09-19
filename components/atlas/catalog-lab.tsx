@@ -12,7 +12,7 @@ import {
   LoaderCircle,
   ScanSearch,
 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SequenceInspector } from '@/components/atlas/sequence-inspector';
 import {
   Bar,
@@ -33,11 +33,13 @@ import {
 } from '@/components/ui/chart';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { CatalogAnalysisState } from '@/hooks/use-catalog-analysis';
+import type { CatalogAnalysis } from '@/lib/science/catalog-analysis';
 import {
   analysisManifest,
   catalogCsv,
   catalogGeoJson,
 } from '@/lib/export/catalog-export';
+import { buildSequenceExport } from '@/lib/export/sequence-export';
 import type {
   AtlasFilters,
   MapBounds,
@@ -46,6 +48,7 @@ import type {
 import type { CatalogEvent } from '@/shared/schemas';
 import type { CatalogCompleteness } from '@/lib/api/catalog-pages';
 import { sequenceColor } from '@/lib/map/sequence-style';
+import type { SequencePlaybackSnapshot } from '@/lib/science/sequence-playback';
 import { cn } from '@/lib/utils';
 
 const countChartConfig = {
@@ -86,6 +89,7 @@ type CatalogLabProps = {
   focusedSequenceEventId: string | null;
   onSelectSequence: (sequenceId: string) => void;
   onFocusSequenceEvent: (eventId: string) => void;
+  onSequencePlaybackChange: (playback: SequencePlaybackSnapshot | null) => void;
 };
 
 export function CatalogLab({
@@ -99,14 +103,33 @@ export function CatalogLab({
   focusedSequenceEventId,
   onSelectSequence,
   onFocusSequenceEvent,
+  onSequencePlaybackChange,
 }: CatalogLabProps) {
   const analysis = state.analysis;
   const pendingFocus = useRef<'inspector' | 'candidates' | null>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const firstCandidateRef = useRef<HTMLButtonElement>(null);
+  const exportSnapshot = useRef<{
+    analysis: CatalogAnalysis;
+    generatedAt: string;
+  } | null>(null);
+  const [exportFailure, setExportFailure] = useState<{
+    analysis: CatalogAnalysis;
+    candidateId: string;
+  } | null>(null);
   const selectedCandidate = analysis?.sequences.candidates.find(
     (candidate) => candidate.id === selectedSequenceId,
   );
+  const exportError =
+    exportFailure?.analysis === analysis &&
+    exportFailure.candidateId === selectedCandidate?.id;
+  const canExportSequence =
+    state.status === 'ready' &&
+    completeness.complete &&
+    completeness.total !== null &&
+    completeness.loaded === completeness.total &&
+    analysis?.eventCount === events.length &&
+    !!selectedCandidate;
   useEffect(() => {
     if (pendingFocus.current === 'inspector' && selectedCandidate) {
       pendingFocus.current = null;
@@ -122,6 +145,41 @@ export function CatalogLab({
       : 'No catalog coverage';
   const exportContext = { filters, bounds, timelineWindow, completeness };
   const fileStem = `seismic-atlas-afad-${new Date().toISOString().slice(0, 10)}`;
+
+  function downloadSelectedSequence(format: 'csv' | 'geojson' | 'methods') {
+    if (!canExportSequence || !analysis || !selectedCandidate) return;
+
+    try {
+      if (exportSnapshot.current?.analysis !== analysis) {
+        exportSnapshot.current = {
+          analysis,
+          generatedAt: new Date().toISOString(),
+        };
+      }
+      const result = buildSequenceExport(selectedCandidate, events, analysis, {
+        ...exportContext,
+        generatedAt: exportSnapshot.current.generatedAt,
+      });
+      if (format === 'csv') {
+        downloadFile(result.manifest.files.csv, result.csv, 'text/csv');
+      } else if (format === 'geojson') {
+        downloadFile(
+          result.manifest.files.geoJson,
+          JSON.stringify(result.geoJson, null, 2),
+          'application/geo+json',
+        );
+      } else {
+        downloadFile(
+          result.manifest.files.manifest,
+          JSON.stringify(result.manifest, null, 2),
+          'application/json',
+        );
+      }
+      setExportFailure(null);
+    } catch {
+      setExportFailure({ analysis, candidateId: selectedCandidate.id });
+    }
+  }
 
   return (
     <section
@@ -167,19 +225,58 @@ export function CatalogLab({
 
         <div className="ml-auto flex items-center gap-1.5">
           {selectedCandidate ? (
-            <Button
-              ref={backButtonRef}
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                pendingFocus.current = 'candidates';
-                onSelectSequence(selectedCandidate.id);
-              }}
-            >
-              <ArrowLeft className="size-3.5" aria-hidden="true" />
-              All candidates
-            </Button>
+            <>
+              <Button
+                ref={backButtonRef}
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 md:h-7"
+                onClick={() => {
+                  pendingFocus.current = 'candidates';
+                  onSelectSequence(selectedCandidate.id);
+                }}
+              >
+                <ArrowLeft className="size-3.5" aria-hidden="true" />
+                All candidates
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 w-10 px-0 xl:h-7 xl:w-auto xl:px-2.5"
+                aria-label="Download selected sequence as CSV"
+                disabled={!canExportSequence}
+                onClick={() => downloadSelectedSequence('csv')}
+              >
+                <Download className="size-3.5" aria-hidden="true" />
+                <span className="hidden xl:inline">CSV</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 w-10 px-0 xl:h-7 xl:w-auto xl:px-2.5"
+                aria-label="Download selected sequence as GeoJSON"
+                disabled={!canExportSequence}
+                onClick={() => downloadSelectedSequence('geojson')}
+              >
+                <FileJson2 className="size-3.5" aria-hidden="true" />
+                <span className="hidden xl:inline">GeoJSON</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 w-10 px-0 xl:h-7 xl:w-auto xl:px-2.5"
+                aria-label="Download selected sequence methods manifest"
+                disabled={!canExportSequence}
+                onClick={() => downloadSelectedSequence('methods')}
+              >
+                <Braces className="size-3.5" aria-hidden="true" />
+                <span className="hidden xl:inline">Methods</span>
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -251,6 +348,16 @@ export function CatalogLab({
         </div>
       </div>
 
+      {exportError && (
+        <p
+          role="alert"
+          className="shrink-0 border-b border-destructive/25 px-3 py-2 text-xs text-destructive md:px-4"
+        >
+          This candidate no longer matches the verified catalog. Refresh the
+          selection before exporting.
+        </p>
+      )}
+
       {state.status === 'loading' && (
         <div className="grid min-h-0 flex-1 place-items-center">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -293,6 +400,7 @@ export function CatalogLab({
           events={events}
           focusedEventId={focusedSequenceEventId}
           onFocusEvent={onFocusSequenceEvent}
+          onPlaybackChange={onSequencePlaybackChange}
         />
       )}
 

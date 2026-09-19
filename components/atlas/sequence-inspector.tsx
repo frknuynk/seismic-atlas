@@ -1,11 +1,21 @@
 'use client';
 
-import { Activity, AlertTriangle, LocateFixed } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  LocateFixed,
+  Pause,
+  Play,
+  RotateCcw,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   Scatter,
   ScatterChart,
   XAxis,
@@ -20,11 +30,17 @@ import {
   type ChartConfig,
 } from '@/components/ui/chart';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Slider } from '@/components/ui/slider';
 import {
   buildSequenceInspector,
   cumulativePlotObservations,
   magnitudePlotObservations,
 } from '@/lib/science/sequence-inspector';
+import {
+  sequencePlaybackDelayMs,
+  sequencePlaybackSnapshot,
+  type SequencePlaybackSnapshot,
+} from '@/lib/science/sequence-playback';
 import type { SeismicSequenceCandidate } from '@/lib/science/seismic-sequences';
 import { cn } from '@/lib/utils';
 import type { CatalogEvent } from '@/shared/schemas';
@@ -54,6 +70,7 @@ type SequenceInspectorProps = {
   events: CatalogEvent[];
   focusedEventId: string | null;
   onFocusEvent: (eventId: string) => void;
+  onPlaybackChange: (playback: SequencePlaybackSnapshot | null) => void;
 };
 
 export function SequenceInspector({
@@ -61,12 +78,68 @@ export function SequenceInspector({
   events,
   focusedEventId,
   onFocusEvent,
+  onPlaybackChange,
 }: SequenceInspectorProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const data = useMemo(
     () => buildSequenceInspector(candidate, events),
     [candidate, events],
   );
+  const observationCount = data.complete ? data.observations.length : 0;
+  const [playbackIndex, setPlaybackIndex] = useState(() =>
+    Math.max(0, observationCount - 1),
+  );
+  const [playing, setPlaying] = useState(false);
+  const onPlaybackChangeRef = useRef(onPlaybackChange);
+  const safePlaybackIndex = Math.min(
+    Math.max(0, observationCount - 1),
+    playbackIndex,
+  );
+  const effectivePlaying =
+    playing && safePlaybackIndex < Math.max(0, observationCount - 1);
+
+  useEffect(() => {
+    onPlaybackChangeRef.current = onPlaybackChange;
+  }, [onPlaybackChange]);
+
+  useEffect(
+    () => () => {
+      onPlaybackChangeRef.current(null);
+    },
+    [candidate.id],
+  );
+
+  useEffect(() => {
+    if (!data.complete) {
+      onPlaybackChange(null);
+    }
+  }, [data, onPlaybackChange]);
+
+  useEffect(() => {
+    if (!data.complete) return;
+    const snapshot = sequencePlaybackSnapshot(
+      candidate.id,
+      data.observations,
+      safePlaybackIndex,
+      effectivePlaying,
+    );
+    onPlaybackChange(snapshot);
+  }, [
+    candidate.id,
+    data,
+    effectivePlaying,
+    onPlaybackChange,
+    safePlaybackIndex,
+  ]);
+
+  useEffect(() => {
+    if (!effectivePlaying || !data.complete) return;
+    const timer = window.setTimeout(
+      () => setPlaybackIndex(safePlaybackIndex + 1),
+      sequencePlaybackDelayMs(data.observations.length),
+    );
+    return () => window.clearTimeout(timer);
+  }, [data, effectivePlaying, safePlaybackIndex]);
 
   if (!data.complete) {
     return (
@@ -89,6 +162,24 @@ export function SequenceInspector({
 
   const magnitudePlot = magnitudePlotObservations(data.magnitudeObservations);
   const cumulativePlot = cumulativePlotObservations(data.observations);
+  const currentObservation = data.observations[safePlaybackIndex]!;
+  const currentTimeMs = currentObservation.timeMs;
+  const visibleMagnitudePlot = magnitudePlot.filter(
+    ({ timeMs }) => timeMs <= currentTimeMs,
+  );
+  const visibleCumulativePlot = cumulativePlot.filter(
+    ({ timeMs }) => timeMs <= currentTimeMs,
+  );
+  const magnitudeValues = data.magnitudeObservations.map(
+    ({ event }) => event.magnitude!,
+  );
+  const magnitudeDomain: [number, number] =
+    magnitudeValues.length === 0
+      ? [0, 1]
+      : [
+          Math.floor((Math.min(...magnitudeValues) - 0.2) * 10) / 10,
+          Math.ceil((Math.max(...magnitudeValues) + 0.2) * 10) / 10,
+        ];
   const timeDomain: [number, number] = [
     data.observations[0]!.timeMs - 60_000,
     data.observations.at(-1)!.timeMs + 60_000,
@@ -137,6 +228,127 @@ export function SequenceInspector({
           </div>
         </div>
 
+        <section
+          aria-labelledby="sequence-playback-title"
+          className="rounded-lg border border-primary/25 bg-card/70 p-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 id="sequence-playback-title" className="text-sm font-medium">
+                Sequence playback
+              </h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Reveal reported events in chronological order.
+              </p>
+            </div>
+            <output
+              aria-live="polite"
+              className="font-mono text-xs tabular-nums text-primary"
+            >
+              {safePlaybackIndex + 1} / {data.observations.length}
+            </output>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-11 shrink-0"
+              aria-label="Restart sequence playback"
+              title="Restart"
+              onClick={() => {
+                setPlaying(false);
+                setPlaybackIndex(0);
+              }}
+            >
+              <RotateCcw className="size-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-11 shrink-0"
+              aria-label="Show previous sequence event"
+              title="Previous event"
+              disabled={safePlaybackIndex === 0}
+              onClick={() => {
+                setPlaying(false);
+                setPlaybackIndex(Math.max(0, safePlaybackIndex - 1));
+              }}
+            >
+              <SkipBack className="size-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              className="size-11 shrink-0"
+              aria-label={
+                effectivePlaying ? 'Pause sequence playback' : 'Play sequence'
+              }
+              title={effectivePlaying ? 'Pause' : 'Play'}
+              onClick={() => {
+                if (effectivePlaying) {
+                  setPlaying(false);
+                  return;
+                }
+                if (safePlaybackIndex >= data.observations.length - 1) {
+                  setPlaybackIndex(0);
+                }
+                setPlaying(true);
+              }}
+            >
+              {effectivePlaying ? (
+                <Pause className="size-4" aria-hidden="true" />
+              ) : (
+                <Play className="size-4" aria-hidden="true" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-11 shrink-0"
+              aria-label="Show next sequence event"
+              title="Next event"
+              disabled={safePlaybackIndex >= data.observations.length - 1}
+              onClick={() => {
+                setPlaying(false);
+                setPlaybackIndex(
+                  Math.min(data.observations.length - 1, safePlaybackIndex + 1),
+                );
+              }}
+            >
+              <SkipForward className="size-4" aria-hidden="true" />
+            </Button>
+            <Slider
+              className="ml-1 min-w-24 flex-1"
+              value={[safePlaybackIndex]}
+              min={0}
+              max={Math.max(0, data.observations.length - 1)}
+              step={1}
+              aria-label="Sequence playback event"
+              onValueChange={(value) => {
+                setPlaying(false);
+                setPlaybackIndex(firstSliderValue(value, safePlaybackIndex));
+              }}
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+            <span className="truncate">
+              {currentObservation.event.place ?? 'Unknown location'}
+            </span>
+            <time
+              dateTime={currentObservation.event.originTime}
+              className="shrink-0 font-mono tabular-nums"
+            >
+              {dateTimeFormat.format(
+                new Date(currentObservation.event.originTime),
+              )}
+            </time>
+          </div>
+        </section>
+
         <div className="grid gap-3 lg:grid-cols-2">
           <section
             aria-labelledby="sequence-magnitude-title"
@@ -181,15 +393,21 @@ export function SequenceInspector({
                   <YAxis
                     type="number"
                     dataKey="magnitude"
-                    domain={['auto', 'auto']}
+                    domain={magnitudeDomain}
                     width={36}
                     tickLine={false}
                     axisLine={false}
                   />
                   <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                  <ReferenceLine
+                    x={currentTimeMs}
+                    stroke="var(--primary)"
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.75}
+                  />
                   <Scatter
                     name="Magnitude"
-                    data={magnitudePlot.map(({ event, timeMs }) => ({
+                    data={visibleMagnitudePlot.map(({ event, timeMs }) => ({
                       timeMs,
                       magnitude: event.magnitude,
                     }))}
@@ -229,7 +447,7 @@ export function SequenceInspector({
               aria-label="Cumulative sequence event count over time"
             >
               <LineChart
-                data={cumulativePlot}
+                data={visibleCumulativePlot}
                 accessibilityLayer
                 margin={{ top: 8, right: 8, bottom: 0, left: -8 }}
               >
@@ -253,6 +471,12 @@ export function SequenceInspector({
                   axisLine={false}
                 />
                 <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                <ReferenceLine
+                  x={currentTimeMs}
+                  stroke="var(--primary)"
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.75}
+                />
                 <Line
                   type="stepAfter"
                   dataKey="cumulativeCount"
@@ -300,10 +524,17 @@ export function SequenceInspector({
                       type="button"
                       aria-pressed={focused}
                       aria-label={`Focus event ${cumulativeCount} on map: ${event.place ?? 'Unknown location'}, magnitude ${event.magnitude?.toFixed(1) ?? 'not reported'}, ${dateTimeFormat.format(new Date(event.originTime))}`}
-                      onClick={() => onFocusEvent(event.id)}
+                      onClick={() => {
+                        setPlaying(false);
+                        setPlaybackIndex(cumulativeCount - 1);
+                        onFocusEvent(event.id);
+                      }}
                       className={cn(
                         'flex min-h-14 w-full items-center gap-2 rounded-md border bg-background/45 p-2 text-left transition hover:border-primary/50 hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                         focused && 'border-primary/70 bg-primary/[0.08]',
+                        safePlaybackIndex === cumulativeCount - 1 &&
+                          !focused &&
+                          'border-primary/40 bg-primary/[0.04]',
                       )}
                     >
                       <span className="w-7 shrink-0 text-center font-mono text-xs text-muted-foreground">
@@ -377,4 +608,8 @@ function formatDuration(hours: number) {
   if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
   if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
   return `${(hours / 24).toFixed(1)}d`;
+}
+
+function firstSliderValue(value: number | readonly number[], fallback: number) {
+  return typeof value === 'number' ? value : (value[0] ?? fallback);
 }

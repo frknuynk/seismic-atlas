@@ -70,8 +70,16 @@ catalog. Missing magnitudes are disclosed rather than imputed, and very dense
 charts are downsampled with the magnitude extremes and cumulative endpoint
 preserved. The member list loads in bounded pages for browser responsiveness.
 The inspector deliberately does not infer mainshocks, aftershocks, causation,
-hazard, or future seismicity. Playback and candidate-specific export are later
-v0.7 slices.
+hazard, or future seismicity. A selected candidate can now be exported as
+chronological CSV, point GeoJSON, and a methods manifest containing the exact
+member IDs, parent catalog selection, completeness audit, and detection
+thresholds. Export is unavailable while the catalog is incomplete or analysis
+is refreshing. The inspector also includes chronological playback with direct
+scrubbing and single-event stepping. During playback, charts reveal only the
+observations available at the current frame; the map dims upcoming candidate
+members, preserves previously observed members, and marks the current event
+without repeatedly moving the camera. Playback is an exploratory rendering of
+reported origin times, not a physical simulation or forecast.
 
 ## Requirements
 

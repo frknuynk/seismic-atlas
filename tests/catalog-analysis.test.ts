@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   analyzeCatalog,
+  catalogAnalysisFingerprint,
   catalogAnalysisKey,
 } from '@/lib/science/catalog-analysis';
 import type { CatalogEvent } from '@/shared/schemas';
@@ -38,6 +39,12 @@ describe('catalog analysis', () => {
     expect(catalogAnalysisKey([{ ...cloned[0], longitude: 35.5 }])).not.toBe(
       catalogAnalysisKey(original),
     );
+    expect(catalogAnalysisKey([{ ...cloned[0], place: null }])).not.toBe(
+      catalogAnalysisKey(original),
+    );
+    expect(
+      catalogAnalysisFingerprint([{ ...cloned[0], revisionCount: 2 }]),
+    ).not.toBe(catalogAnalysisFingerprint(original));
   });
 
   it('computes descriptive coverage, histograms, and cumulative FMD', () => {

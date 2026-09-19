@@ -44,6 +44,7 @@ import { useCatalogAnalysis } from '@/hooks/use-catalog-analysis';
 import { eventInTimelineWindow } from '@/lib/timeline';
 import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
 import { sequenceMembership } from '@/lib/map/sequence-style';
+import type { SequencePlaybackSnapshot } from '@/lib/science/sequence-playback';
 import type { SourceHealthResponse } from '@/shared/schemas';
 import {
   type AtlasFilters,
@@ -216,6 +217,8 @@ export function AtlasShell({
   const [focusedSequenceEventId, setFocusedSequenceEventId] = useState<
     string | null
   >(null);
+  const [sequencePlayback, setSequencePlayback] =
+    useState<SequencePlaybackSnapshot | null>(null);
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'ready'>(
     'idle',
   );
@@ -263,6 +266,8 @@ export function AtlasShell({
   )
     ? focusedSequenceEventId
     : null;
+  const activeSequencePlayback =
+    sequencePlayback?.sequenceId === activeSequenceId ? sequencePlayback : null;
   const mapSequenceMembership = useMemo(
     () => sequenceMembership(sequenceCandidates),
     [sequenceCandidates],
@@ -334,12 +339,14 @@ export function AtlasShell({
   function handleEventSelection(eventId: string) {
     setSelectedSequenceId(null);
     setFocusedSequenceEventId(null);
+    setSequencePlayback(null);
     setSelectedEventId(eventId);
   }
 
   function handleSequenceSelection(sequenceId: string) {
     setSelectedEventId(null);
     setFocusedSequenceEventId(null);
+    setSequencePlayback(null);
     setSelectedSequenceId((current) =>
       current === sequenceId ? null : sequenceId,
     );
@@ -356,8 +363,16 @@ export function AtlasShell({
     if (nextMode !== 'lab') {
       setSelectedSequenceId(null);
       setFocusedSequenceEventId(null);
+      setSequencePlayback(null);
     }
   }
+
+  const handleSequencePlaybackChange = useCallback(
+    (playback: SequencePlaybackSnapshot | null) => {
+      setSequencePlayback(playback);
+    },
+    [],
+  );
 
   const handleBoundsChange = useCallback(
     (nextBounds: MapBounds, updateSelection: boolean) => {
@@ -562,6 +577,7 @@ export function AtlasShell({
             }
             selectedSequenceId={activeSequenceId}
             sequenceMembership={mapSequenceMembership}
+            sequencePlayback={activeSequencePlayback}
             nearestFaultId={nearestFault?.id ?? null}
             onSelectEvent={handleEventSelection}
             onViewportChange={handleBoundsChange}
@@ -638,6 +654,7 @@ export function AtlasShell({
               focusedSequenceEventId={activeFocusedSequenceEventId}
               onSelectSequence={handleSequenceSelection}
               onFocusSequenceEvent={handleFocusSequenceEvent}
+              onSequencePlaybackChange={handleSequencePlaybackChange}
             />
           ) : (
             <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">
