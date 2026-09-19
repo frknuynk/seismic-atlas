@@ -123,6 +123,20 @@
     @apply border-border outline-ring/50;
   }
 
+  :where(
+    button:not(:disabled),
+    [role='button']:not([aria-disabled='true']),
+    a[href],
+    summary,
+    label[for]
+  ) {
+    cursor: pointer;
+  }
+
+  :where(button:disabled, [role='button'][aria-disabled='true']) {
+    cursor: not-allowed;
+  }
+
   html {
     @apply font-sans;
   }
@@ -161,6 +175,14 @@
 
 .maplibregl-map {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.maplibregl-canvas {
+  cursor: grab;
+}
+
+.maplibregl-canvas:active {
+  cursor: grabbing;
 }
 
 .maplibregl-ctrl-group {

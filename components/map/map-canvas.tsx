@@ -1,7 +1,7 @@
 'use client';
 
 import { LocateFixed, Mountain, RotateCcw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
@@ -42,6 +42,7 @@ const EVENTS_SEQUENCE_SELECTED_LAYER = 'atlas-events-sequence-selected';
 const EVENTS_SEQUENCE_PLAYBACK_LAYER = 'atlas-events-sequence-playback';
 const EVENTS_LABEL_LAYER = 'atlas-events-labels';
 const EVENTS_SELECTED_LAYER = 'atlas-events-selected';
+const EVENTS_HIT_LAYER = 'atlas-events-hit-area';
 const TURKIYE_CENTER: [number, number] = [35.35, 39.05];
 const TERRAIN_EXAGGERATION = 1.3;
 
@@ -123,6 +124,7 @@ type MapCanvasProps = {
   selectedSequenceId: string | null;
   sequenceMembership: Map<string, SequenceMembership>;
   sequencePlayback: SequencePlaybackSnapshot | null;
+  viewResetKey: number;
   nearestFaultId: string | null;
   onSelectEvent: (eventId: string) => void;
   onViewportChange: (bounds: MapBounds, updateSelection: boolean) => void;
@@ -141,6 +143,7 @@ export function MapCanvas({
   selectedSequenceId,
   sequenceMembership,
   sequencePlayback,
+  viewResetKey,
   nearestFaultId,
   onSelectEvent,
   onViewportChange,
@@ -157,6 +160,7 @@ export function MapCanvas({
   const onViewportChangeRef = useRef(onViewportChange);
   const onCameraChangeRef = useRef(onCameraChange);
   const onResetViewRef = useRef(onResetView);
+  const lastViewResetKeyRef = useRef(viewResetKey);
   const focusBeaconRef = useRef<HTMLDivElement>(null);
   const overviewModeRef = useRef(
     !initialCamera || isLegacyOverviewCamera(initialCamera),
@@ -683,13 +687,37 @@ export function MapCanvas({
             },
           });
 
-          map.on('mouseenter', EVENTS_LAYER, () => {
+          // Small events still need a comfortable hover and click target. Keep
+          // this transparent layer independent from the rendered marker size.
+          map.addLayer({
+            id: EVENTS_HIT_LAYER,
+            type: 'circle',
+            source: EVENTS_SOURCE,
+            paint: {
+              'circle-color': 'rgba(0, 0, 0, 0)',
+              'circle-radius': [
+                'interpolate',
+                ['linear'],
+                ['get', 'magnitude'],
+                0,
+                12,
+                3,
+                15,
+                5,
+                20,
+                7,
+                26,
+              ],
+            },
+          });
+
+          map.on('mouseenter', EVENTS_HIT_LAYER, () => {
             map.getCanvas().style.cursor = 'pointer';
           });
-          map.on('mouseleave', EVENTS_LAYER, () => {
+          map.on('mouseleave', EVENTS_HIT_LAYER, () => {
             map.getCanvas().style.cursor = '';
           });
-          map.on('click', EVENTS_LAYER, (event) => {
+          map.on('click', EVENTS_HIT_LAYER, (event) => {
             const eventId = event.features?.[0]?.properties?.id;
             if (typeof eventId === 'string') onSelectEventRef.current(eventId);
           });
@@ -819,6 +847,7 @@ export function MapCanvas({
       EVENTS_SEQUENCE_PLAYBACK_LAYER,
       EVENTS_SELECTED_LAYER,
       EVENTS_LABEL_LAYER,
+      EVENTS_HIT_LAYER,
     ]) {
       if (map.getLayer(layer))
         map.setLayoutProperty(layer, 'visibility', visibility);
@@ -979,7 +1008,7 @@ export function MapCanvas({
     terrainEnabled,
   ]);
 
-  function resetView() {
+  const resetView = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
     overviewModeRef.current = true;
@@ -999,7 +1028,13 @@ export function MapCanvas({
         duration: 900,
       });
     }
-  }
+  }, [terrainEnabled]);
+
+  useEffect(() => {
+    if (viewResetKey === lastViewResetKeyRef.current) return;
+    lastViewResetKeyRef.current = viewResetKey;
+    resetView();
+  }, [resetView, viewResetKey]);
 
   function setTerrain(enabled: boolean) {
     const map = mapRef.current;

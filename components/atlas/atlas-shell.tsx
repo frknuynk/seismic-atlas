@@ -47,6 +47,7 @@ import { sequenceMembership } from '@/lib/map/sequence-style';
 import type { SequencePlaybackSnapshot } from '@/lib/science/sequence-playback';
 import type { SourceHealthResponse } from '@/shared/schemas';
 import {
+  DEFAULT_ATLAS_FILTERS,
   type AtlasFilters,
   type AtlasMode,
   type MapBounds,
@@ -219,6 +220,7 @@ export function AtlasShell({
   >(null);
   const [sequencePlayback, setSequencePlayback] =
     useState<SequencePlaybackSnapshot | null>(null);
+  const [mapResetKey, setMapResetKey] = useState(0);
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'ready'>(
     'idle',
   );
@@ -328,6 +330,18 @@ export function AtlasShell({
       setPreviewTimeWindow(null);
     }
     setFilters(nextFilters);
+  }
+
+  function handleFiltersReset() {
+    setFilters({ ...DEFAULT_ATLAS_FILTERS });
+    setSelectedTimeWindow(null);
+    setPreviewTimeWindow(null);
+    setSelectedEventId(null);
+    setSelectedSequenceId(null);
+    setFocusedSequenceEventId(null);
+    setSequencePlayback(null);
+    setCamera(null);
+    setMapResetKey((current) => current + 1);
   }
 
   function handleSearchSelection(eventId: string) {
@@ -456,6 +470,7 @@ export function AtlasShell({
               filters={filters}
               resultCount={selectedEvents.length}
               onChange={handleFiltersChange}
+              onReset={handleFiltersReset}
             />
           </div>
 
@@ -578,6 +593,7 @@ export function AtlasShell({
             selectedSequenceId={activeSequenceId}
             sequenceMembership={mapSequenceMembership}
             sequencePlayback={activeSequencePlayback}
+            viewResetKey={mapResetKey}
             nearestFaultId={nearestFault?.id ?? null}
             onSelectEvent={handleEventSelection}
             onViewportChange={handleBoundsChange}
@@ -606,6 +622,7 @@ export function AtlasShell({
                     filters={filters}
                     resultCount={selectedEvents.length}
                     onChange={handleFiltersChange}
+                    onReset={handleFiltersReset}
                   />
                 </div>
               </SheetContent>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Layers3, SlidersHorizontal } from 'lucide-react';
+import { Layers3, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import type { AtlasFilters } from '@/shared/atlas-state';
@@ -19,12 +19,14 @@ type FilterControlsProps = {
   filters: AtlasFilters;
   resultCount: number;
   onChange: (filters: AtlasFilters) => void;
+  onReset: () => void;
 };
 
 export function FilterControls({
   filters,
   resultCount,
   onChange,
+  onReset,
 }: FilterControlsProps) {
   return (
     <div className="space-y-5">
@@ -36,9 +38,20 @@ export function FilterControls({
           />
           Explore
         </div>
-        <span className="text-xs text-muted-foreground">
-          {resultCount.toLocaleString()} visible
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {resultCount.toLocaleString()} visible
+          </span>
+          <button
+            type="button"
+            onClick={onReset}
+            className="flex min-h-9 items-center gap-1 rounded-md border px-2 text-xs text-muted-foreground transition hover:border-primary/50 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Reset filters and return map to Türkiye"
+          >
+            <RotateCcw className="size-3.5" aria-hidden="true" />
+            Reset
+          </button>
+        </div>
       </div>
 
       <fieldset>
