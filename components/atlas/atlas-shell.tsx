@@ -415,7 +415,7 @@ export function AtlasShell({
     <main className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-9 shrink-0 place-items-center rounded-md border border-primary/30 bg-primary/10 text-primary">
+          <div className="hidden size-9 shrink-0 place-items-center rounded-md border border-primary/30 bg-primary/10 text-primary sm:grid">
             <Activity className="size-5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
@@ -433,12 +433,23 @@ export function AtlasShell({
           onValueChange={(value) => handleModeChange(value as AtlasMode)}
           className="shrink-0"
         >
-          <TabsList aria-label="Atlas mode" className="bg-muted/70">
-            <TabsTrigger value="explore" aria-label="Explore mode">
+          <TabsList
+            aria-label="Atlas mode"
+            className="bg-muted/70 group-data-horizontal/tabs:h-11 md:group-data-horizontal/tabs:h-8"
+          >
+            <TabsTrigger
+              value="explore"
+              aria-label="Explore mode"
+              className="min-h-11 min-w-10 md:min-h-0"
+            >
               <Binoculars className="size-3.5" aria-hidden="true" />
               <span className="hidden lg:inline">Explore</span>
             </TabsTrigger>
-            <TabsTrigger value="lab" aria-label="Catalog Lab mode">
+            <TabsTrigger
+              value="lab"
+              aria-label="Catalog Lab mode"
+              className="min-h-11 min-w-10 md:min-h-0"
+            >
               <FlaskConical className="size-3.5" aria-hidden="true" />
               <span className="hidden lg:inline">Catalog Lab</span>
             </TabsTrigger>
@@ -447,7 +458,13 @@ export function AtlasShell({
 
         <EventSearch events={events} onSelectEvent={handleSearchSelection} />
 
-        <Button type="button" variant="outline" size="sm" onClick={shareView}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="size-11 px-0 sm:h-7 sm:w-auto sm:px-2.5"
+          onClick={shareView}
+        >
           {shareState === 'copied' ? (
             <Check className="size-4" aria-hidden="true" />
           ) : (
@@ -603,7 +620,15 @@ export function AtlasShell({
 
           <div className="absolute left-3 top-3 flex gap-2 md:hidden">
             <Sheet>
-              <SheetTrigger render={<Button size="sm" variant="secondary" />}>
+              <SheetTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="min-h-11"
+                  />
+                }
+              >
                 <SlidersHorizontal className="size-4" aria-hidden="true" />
                 Filters
               </SheetTrigger>
@@ -629,7 +654,15 @@ export function AtlasShell({
             </Sheet>
 
             <Sheet>
-              <SheetTrigger render={<Button size="sm" variant="secondary" />}>
+              <SheetTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="min-h-11"
+                  />
+                }
+              >
                 <Layers3 className="size-4" aria-hidden="true" />
                 Layers
               </SheetTrigger>

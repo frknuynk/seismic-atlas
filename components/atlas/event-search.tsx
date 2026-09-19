@@ -69,7 +69,7 @@ export function EventSearch({ events, onSelectEvent }: EventSearchProps) {
         type="button"
         variant="outline"
         onClick={() => setOpen(true)}
-        className="ml-auto w-9 justify-start px-0 sm:w-auto sm:min-w-48 sm:px-3 lg:max-w-sm lg:flex-1"
+        className="ml-auto size-11 justify-start px-0 sm:h-8 sm:w-auto sm:min-w-48 sm:px-3 lg:max-w-sm lg:flex-1"
         aria-label="Search earthquakes in the current map view"
       >
         <Search className="size-4 text-muted-foreground" aria-hidden="true" />

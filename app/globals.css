@@ -196,6 +196,13 @@
   filter: invert(1);
 }
 
+@media (max-width: 767px) {
+  .maplibregl-ctrl-group button {
+    width: 2.5rem !important;
+    height: 2.5rem !important;
+  }
+}
+
 /* Atlas navigation uses a low-profile seismic pulse instead of browser chrome. */
 .atlas-scroll-area [data-slot='scroll-area-scrollbar'] {
   width: 0.7rem;

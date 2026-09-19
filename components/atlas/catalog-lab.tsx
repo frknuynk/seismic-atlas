@@ -231,7 +231,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-10 md:h-7"
+                className="h-11 md:h-7"
                 onClick={() => {
                   pendingFocus.current = 'candidates';
                   onSelectSequence(selectedCandidate.id);
@@ -244,7 +244,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-10 w-10 px-0 xl:h-7 xl:w-auto xl:px-2.5"
+                className="size-11 px-0 xl:h-7 xl:w-auto xl:px-2.5"
                 aria-label="Download selected sequence as CSV"
                 disabled={!canExportSequence}
                 onClick={() => downloadSelectedSequence('csv')}
@@ -256,7 +256,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-10 w-10 px-0 xl:h-7 xl:w-auto xl:px-2.5"
+                className="size-11 px-0 xl:h-7 xl:w-auto xl:px-2.5"
                 aria-label="Download selected sequence as GeoJSON"
                 disabled={!canExportSequence}
                 onClick={() => downloadSelectedSequence('geojson')}
@@ -268,7 +268,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-10 w-10 px-0 xl:h-7 xl:w-auto xl:px-2.5"
+                className="size-11 px-0 xl:h-7 xl:w-auto xl:px-2.5"
                 aria-label="Download selected sequence methods manifest"
                 disabled={!canExportSequence}
                 onClick={() => downloadSelectedSequence('methods')}
@@ -283,6 +283,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
+                className="size-11 px-0 lg:h-7 lg:w-auto lg:px-2.5"
                 aria-label="Download catalog as CSV"
                 disabled={
                   !analysis ||
@@ -304,6 +305,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
+                className="size-11 px-0 lg:h-7 lg:w-auto lg:px-2.5"
                 aria-label="Download catalog as GeoJSON"
                 disabled={
                   !analysis ||
@@ -325,6 +327,7 @@ export function CatalogLab({
                 type="button"
                 size="sm"
                 variant="outline"
+                className="size-11 px-0 lg:h-7 lg:w-auto lg:px-2.5"
                 aria-label="Download reproducible methods manifest"
                 disabled={!analysis || state.status === 'refreshing'}
                 onClick={() => {
@@ -495,7 +498,7 @@ export function CatalogLab({
                           onSelectSequence(candidate.id);
                         }}
                         className={cn(
-                          'rounded-md border bg-background/55 p-3 text-left transition hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                          'min-w-0 rounded-md border bg-background/55 p-3 text-left transition hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                           selected && 'border-primary/70 bg-primary/[0.08]',
                         )}
                         style={{
@@ -711,11 +714,11 @@ function formatDuration(hours: number) {
 
 function SequenceMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
         {label}
       </p>
-      <p className="mt-0.5 font-mono tabular-nums">{value}</p>
+      <p className="mt-0.5 truncate font-mono tabular-nums">{value}</p>
     </div>
   );
 }

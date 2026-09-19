@@ -1095,7 +1095,7 @@ export function MapCanvas({
           disabled={!terrainReady}
           variant="outline"
           aria-label="Toggle 3D terrain"
-          className="rounded-full border-white/10 bg-white/5 px-3 text-slate-100 hover:bg-white/10 data-[state=on]:bg-cyan-300 data-[state=on]:text-slate-950"
+          className="min-h-11 rounded-full border-white/10 bg-white/5 px-3 text-slate-100 hover:bg-white/10 data-[state=on]:bg-cyan-300 data-[state=on]:text-slate-950 sm:min-h-0"
         >
           <Mountain className="size-4" aria-hidden="true" />
           3D
@@ -1106,7 +1106,7 @@ export function MapCanvas({
           variant="ghost"
           onClick={resetView}
           aria-label="Reset map to Türkiye"
-          className="rounded-full text-slate-200 hover:bg-white/10 hover:text-white"
+          className="min-h-11 min-w-11 rounded-full text-slate-200 hover:bg-white/10 hover:text-white sm:min-h-0 sm:min-w-0"
         >
           <RotateCcw className="size-4" aria-hidden="true" />
           <span className="hidden sm:inline">Reset</span>

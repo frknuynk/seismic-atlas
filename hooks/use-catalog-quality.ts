@@ -20,6 +20,7 @@ export function useCatalogQuality() {
     async function load() {
       try {
         const response = await fetch('/api/v1/data-quality', {
+          cache: 'no-store',
           signal: controller.signal,
         });
         if (!response.ok) throw new Error('Catalog quality is unavailable.');

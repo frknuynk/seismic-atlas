@@ -571,7 +571,7 @@ export function SequenceInspector({
               type="button"
               variant="outline"
               size="sm"
-              className="mt-3 w-full"
+              className="mt-3 min-h-11 w-full md:min-h-7"
               onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
             >
               Show next{' '}

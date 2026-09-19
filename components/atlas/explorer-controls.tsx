@@ -45,7 +45,7 @@ export function FilterControls({
           <button
             type="button"
             onClick={onReset}
-            className="flex min-h-9 items-center gap-1 rounded-md border px-2 text-xs text-muted-foreground transition hover:border-primary/50 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex min-h-11 items-center gap-1 rounded-md border px-2 text-xs text-muted-foreground transition hover:border-primary/50 hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:min-h-9"
             aria-label="Reset filters and return map to Türkiye"
           >
             <RotateCcw className="size-3.5" aria-hidden="true" />
@@ -65,7 +65,7 @@ export function FilterControls({
               type="button"
               onClick={() => onChange({ ...filters, rangeHours: range.hours })}
               aria-pressed={filters.rangeHours === range.hours}
-              className="rounded-md border px-2 py-2 text-xs transition hover:bg-accent aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary"
+              className="min-h-11 rounded-md border px-2 py-2 text-xs transition hover:bg-accent aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary md:min-h-0"
             >
               {range.label}
             </button>

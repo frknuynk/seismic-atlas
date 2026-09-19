@@ -9,7 +9,7 @@ export async function GET() {
     );
     return Response.json(quality, {
       headers: {
-        'Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
+        'Cache-Control': 'no-store',
       },
     });
   } catch (error) {
