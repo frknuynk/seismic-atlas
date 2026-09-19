@@ -2,6 +2,10 @@ import { env } from 'cloudflare:workers';
 import { getD1 } from '@/db';
 import { AfadSyncRequestSchema } from '@/shared/schemas';
 import { runAfadSync } from '@/worker/ingestion/afad';
+import {
+  isManualSyncRateLimited,
+  manualSyncRateLimitedResponse,
+} from '@/worker/security';
 
 function isAuthorized(request: Request) {
   const configuredToken = env.AFAD_SYNC_TOKEN;
@@ -23,6 +27,11 @@ export async function POST(request: Request) {
       },
       { status: 401 },
     );
+  }
+
+  if (await isManualSyncRateLimited(env.MANUAL_SYNC_RATE_LIMIT)) {
+    console.warn('Manual AFAD synchronization request rate limited');
+    return manualSyncRateLimitedResponse();
   }
 
   let body: unknown = { mode: 'sync' };

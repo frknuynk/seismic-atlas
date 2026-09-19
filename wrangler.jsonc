@@ -12,6 +12,16 @@
       "migrations_dir": "migrations",
     },
   ],
+  "ratelimits": [
+    {
+      "name": "MANUAL_SYNC_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 5,
+        "period": 60,
+      },
+    },
+  ],
   "triggers": {
     "crons": ["7 * * * *"],
   },

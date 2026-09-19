@@ -134,6 +134,18 @@ hour behind AFAD. Scheduled ingestion uses an overlapping cursor window of at
 least 15 minutes and never removes previously stored events when the upstream
 service is unavailable.
 
+Authorized HTTP-triggered synchronizations are limited to five attempts per
+minute by the `MANUAL_SYNC_RATE_LIMIT` Cloudflare binding. The scheduled Worker
+handler does not pass through that HTTP limit. Limit responses use status 429
+with `Retry-After: 60`; temporary limiter failures fail open because the bearer
+token and D1 ingestion lease remain mandatory.
+
+The Worker applies a same-origin browser security policy to every application
+response, including CSP, clickjacking, MIME-sniffing, referrer, permissions,
+and production HTTPS transport headers. No cross-origin API access is enabled;
+add an explicit origin allowlist only when a separate trusted client requires
+it.
+
 The AFAD adapter identifies Seismic Atlas on every request, limits retries to a
 bounded exponential backoff starting at two seconds with jitter, and honors the
 upstream `Retry-After` header. A persistent D1 circuit breaker pauses requests
