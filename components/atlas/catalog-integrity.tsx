@@ -13,6 +13,7 @@ type CatalogIntegrityProps = {
   quality: CatalogQualityResponse | null;
   state: 'loading' | 'ready' | 'error';
   onRefresh: () => void;
+  titleId?: string;
 };
 
 const coverageFormat = new Intl.DateTimeFormat('en-GB', {
@@ -32,6 +33,7 @@ export function CatalogIntegrity({
   quality,
   state,
   onRefresh,
+  titleId = 'integrity-title',
 }: CatalogIntegrityProps) {
   const ingestionLast7Days = quality?.ingestionLast7Days ?? {
     runs: 0,
@@ -42,10 +44,10 @@ export function CatalogIntegrity({
   };
 
   return (
-    <section aria-labelledby="integrity-title">
+    <section aria-labelledby={titleId}>
       <div className="mb-2 flex items-center justify-between">
         <h2
-          id="integrity-title"
+          id={titleId}
           className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
         >
           <DatabaseZap className="size-4" aria-hidden="true" />

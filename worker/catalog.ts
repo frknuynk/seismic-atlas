@@ -5,6 +5,10 @@ import type {
   EventsResponse,
   SourceHealthResponse,
 } from '@/shared/schemas';
+import {
+  afadSchedulerHealth,
+  afadSourceTiming,
+} from '@/shared/source-timing';
 
 type EventRow = {
   id: string;
@@ -99,6 +103,35 @@ type RevisionRow = {
 
 function iso(milliseconds: number | null) {
   return milliseconds === null ? null : new Date(milliseconds).toISOString();
+}
+
+function ingestionRunSummary(run: IngestionRunRow | null) {
+  if (!run) return null;
+  return {
+    id: run.id,
+    trigger: run.trigger,
+    windowKind: run.window_kind,
+    windowStart: new Date(run.window_start).toISOString(),
+    windowEnd: new Date(run.window_end).toISOString(),
+    status: run.status,
+    startedAt: new Date(run.started_at).toISOString(),
+    completedAt: iso(run.completed_at),
+    durationMs:
+      run.completed_at === null
+        ? null
+        : Math.max(0, run.completed_at - run.started_at),
+    attempts: run.attempts,
+    splits: run.splits,
+    writeBatches: run.write_batches,
+    fetched: run.fetched,
+    accepted: run.accepted,
+    rejected: run.rejected,
+    duplicatesDropped: run.duplicates_dropped,
+    inserted: run.inserted,
+    updated: run.updated,
+    unchanged: run.unchanged,
+    errorCode: run.error_code,
+  };
 }
 
 function encodeCatalogCursor(cursor: CatalogCursor) {
@@ -248,7 +281,8 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
 export async function getSourceHealth(
   db: D1Database,
 ): Promise<SourceHealthResponse> {
-  const [row, lastRun, requestControl] = await Promise.all([
+  const now = Date.now();
+  const [row, lastRun, lastScheduledRun, requestControl] = await Promise.all([
     db
       .prepare(
         `SELECT source, status, last_attempt_at, last_success_at,
@@ -273,6 +307,19 @@ export async function getSourceHealth(
       .first<IngestionRunRow>(),
     db
       .prepare(
+        `SELECT id, trigger, window_kind, window_start, window_end, status,
+          started_at, completed_at, attempts, splits, write_batches, fetched,
+          accepted, rejected, duplicates_dropped, inserted, updated, unchanged,
+          error_code
+        FROM ingestion_runs
+        WHERE source = ? AND trigger = 'scheduled'
+        ORDER BY started_at DESC
+        LIMIT 1`,
+      )
+      .bind('AFAD')
+      .first<IngestionRunRow>(),
+    db
+      .prepare(
         `SELECT circuit_open_until, last_error_code
         FROM source_request_control
         WHERE source = ?`,
@@ -284,7 +331,7 @@ export async function getSourceHealth(
   const requestControlOpen =
     requestControl?.circuit_open_until !== null &&
     requestControl?.circuit_open_until !== undefined &&
-    requestControl.circuit_open_until > Date.now();
+    requestControl.circuit_open_until > now;
   const requestControlResponse = {
     status: requestControlOpen ? ('open' as const) : ('closed' as const),
     retryAt: requestControlOpen ? iso(requestControl.circuit_open_until) : null,
@@ -292,8 +339,19 @@ export async function getSourceHealth(
       ? (requestControl.last_error_code ?? null)
       : null,
   };
+  const scheduler = afadSchedulerHealth(
+    lastScheduledRun
+      ? {
+          startedAt: lastScheduledRun.started_at,
+          completedAt: lastScheduledRun.completed_at,
+          status: lastScheduledRun.status,
+        }
+      : null,
+    now,
+  );
 
   if (!row) {
+    const timing = afadSourceTiming(null, now);
     return {
       AFAD: {
         status: 'never_synced',
@@ -301,16 +359,19 @@ export async function getSourceHealth(
         lastSuccessAt: null,
         latestEventTime: null,
         consecutiveFailures: 0,
+        ...timing,
+        scheduler,
         requestControl: requestControlResponse,
         lastRun: null,
+        lastScheduledRun: ingestionRunSummary(lastScheduledRun),
       },
     };
   }
 
+  const timing = afadSourceTiming(row.last_success_at, now);
   const status =
     row.status === 'ok' &&
-    row.last_success_at !== null &&
-    Date.now() - row.last_success_at > 75 * 60_000
+    timing.freshness.state !== 'fresh'
       ? 'delayed'
       : row.status;
 
@@ -321,34 +382,11 @@ export async function getSourceHealth(
       lastSuccessAt: iso(row.last_success_at),
       latestEventTime: iso(row.latest_event_time),
       consecutiveFailures: row.consecutive_failures,
+      ...timing,
+      scheduler,
       requestControl: requestControlResponse,
-      lastRun: lastRun
-        ? {
-            id: lastRun.id,
-            trigger: lastRun.trigger,
-            windowKind: lastRun.window_kind,
-            windowStart: new Date(lastRun.window_start).toISOString(),
-            windowEnd: new Date(lastRun.window_end).toISOString(),
-            status: lastRun.status,
-            startedAt: new Date(lastRun.started_at).toISOString(),
-            completedAt: iso(lastRun.completed_at),
-            durationMs:
-              lastRun.completed_at === null
-                ? null
-                : Math.max(0, lastRun.completed_at - lastRun.started_at),
-            attempts: lastRun.attempts,
-            splits: lastRun.splits,
-            writeBatches: lastRun.write_batches,
-            fetched: lastRun.fetched,
-            accepted: lastRun.accepted,
-            rejected: lastRun.rejected,
-            duplicatesDropped: lastRun.duplicates_dropped,
-            inserted: lastRun.inserted,
-            updated: lastRun.updated,
-            unchanged: lastRun.unchanged,
-            errorCode: lastRun.error_code,
-          }
-        : null,
+      lastRun: ingestionRunSummary(lastRun),
+      lastScheduledRun: ingestionRunSummary(lastScheduledRun),
     },
   };
 }

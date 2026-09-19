@@ -91,6 +91,79 @@ function sourceStatusColor(status: string | null | undefined) {
   return 'bg-slate-500';
 }
 
+function sourceFreshnessBadge(
+  freshness: SourceHealthResponse['AFAD']['freshness'] | undefined,
+) {
+  if (freshness?.state === 'fresh') {
+    return { label: 'Fresh', className: 'bg-emerald-400/10 text-emerald-200' };
+  }
+  if (freshness?.state === 'delayed') {
+    return { label: 'Delayed', className: 'bg-amber-400/10 text-amber-100' };
+  }
+  if (freshness?.state === 'stale') {
+    return { label: 'Stale', className: 'bg-rose-400/10 text-rose-100' };
+  }
+  return { label: 'Awaiting data', className: 'bg-slate-400/10 text-slate-300' };
+}
+
+function sourceFreshnessNotice(
+  freshness: SourceHealthResponse['AFAD']['freshness'] | undefined,
+) {
+  if (freshness?.state === 'stale') {
+    return 'The stored catalog is more than three hours old. New AFAD events may be missing until synchronization recovers.';
+  }
+  if (freshness?.state === 'delayed') {
+    return 'The hourly update is late. New AFAD events may not be present yet.';
+  }
+  return null;
+}
+
+function sourceScheduleMessage(
+  schedule: SourceHealthResponse['AFAD']['schedule'] | undefined,
+) {
+  if (!schedule) return null;
+  const nextRun = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/Istanbul',
+  }).format(new Date(schedule.nextScheduledAt));
+  return `Hourly updates · next scheduled check around ${nextRun}`;
+}
+
+function schedulerBadge(
+  scheduler: SourceHealthResponse['AFAD']['scheduler'] | undefined,
+) {
+  if (scheduler?.state === 'healthy') {
+    return { label: 'Healthy', className: 'bg-emerald-400/10 text-emerald-200' };
+  }
+  if (scheduler?.state === 'running') {
+    return { label: 'Running', className: 'bg-cyan-400/10 text-cyan-100' };
+  }
+  if (scheduler?.state === 'overdue') {
+    return { label: 'Overdue', className: 'bg-rose-400/10 text-rose-100' };
+  }
+  return { label: 'Missing', className: 'bg-rose-400/10 text-rose-100' };
+}
+
+function schedulerRunLabel(
+  scheduler: SourceHealthResponse['AFAD']['scheduler'] | undefined,
+) {
+  if (!scheduler?.lastScheduledAt) return 'No scheduled run recorded.';
+  return `${sourceFreshness(scheduler.lastScheduledAt).replace('Synchronized', 'Last scheduled run started')}${scheduler.lastScheduledStatus ? ` · ${scheduler.lastScheduledStatus}` : ''}.`;
+}
+
+function schedulerNotice(
+  scheduler: SourceHealthResponse['AFAD']['scheduler'] | undefined,
+) {
+  if (scheduler?.state === 'missing') {
+    return 'No scheduled ingestion has been recorded. Manual synchronizations do not clear this warning.';
+  }
+  if (scheduler?.state === 'overdue') {
+    return 'No scheduled ingestion has started in the last two hours. Check the Cloudflare Cron trigger.';
+  }
+  return null;
+}
+
 function sourceProtectionMessage(
   control: SourceHealthResponse['AFAD']['requestControl'] | undefined,
 ) {
@@ -119,6 +192,99 @@ function syncRunSummary(
       ? ` · ${run.splits.toLocaleString()} saturation split${run.splits === 1 ? '' : 's'}`
       : '';
   return `${run.accepted.toLocaleString()} accepted · ${changed.toLocaleString()} changed${qualityNotes > 0 ? ` · ${qualityNotes.toLocaleString()} quarantined/duplicate` : ''}${saturationRecovery}.`;
+}
+
+function SourceHealthPanel({
+  health,
+  titleId = 'source-title',
+}: {
+  health: SourceHealthResponse['AFAD'] | null;
+  titleId?: string;
+}) {
+  const protectionMessage = sourceProtectionMessage(health?.requestControl);
+  const freshnessBadge = sourceFreshnessBadge(health?.freshness);
+  const freshnessNotice = sourceFreshnessNotice(health?.freshness);
+  const scheduleMessage = sourceScheduleMessage(health?.schedule);
+  const cronBadge = schedulerBadge(health?.scheduler);
+  const cronNotice = schedulerNotice(health?.scheduler);
+
+  return (
+    <section aria-labelledby={titleId}>
+      <h2
+        id={titleId}
+        className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+      >
+        <Database className="size-4" aria-hidden="true" />
+        Source health
+      </h2>
+      <div className="rounded-md border bg-card/55 p-3">
+        <div className="flex items-center justify-between gap-2 text-sm">
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={`size-2 shrink-0 rounded-full ${sourceStatusColor(health?.status)}`}
+            />
+            <span className="min-w-0 leading-5">
+              {sourceStatusLabel(health?.status)}
+            </span>
+          </span>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${freshnessBadge.className}`}
+          >
+            {freshnessBadge.label}
+          </span>
+        </div>
+        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+          {sourceFreshness(health?.lastSuccessAt)}. Stored results remain
+          available during upstream interruptions.
+        </p>
+        {scheduleMessage && (
+          <p className="mt-1 flex items-center gap-1.5 text-xs leading-5 text-muted-foreground">
+            <Clock3 className="size-3.5 shrink-0" aria-hidden="true" />
+            {scheduleMessage}
+          </p>
+        )}
+        <div className="mt-2 rounded border bg-background/35 p-2">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium">Cron watchdog</span>
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${cronBadge.className}`}
+            >
+              {cronBadge.label}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {schedulerRunLabel(health?.scheduler)}
+          </p>
+        </div>
+        {cronNotice && (
+          <output
+            aria-live="polite"
+            className="mt-2 block rounded border border-rose-400/25 bg-rose-400/10 px-2 py-1.5 text-xs leading-5 text-rose-100"
+          >
+            {cronNotice}
+          </output>
+        )}
+        {health?.lastRun && (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {syncRunSummary(health.lastRun)}
+          </p>
+        )}
+        {freshnessNotice && (
+          <output
+            aria-live="polite"
+            className="mt-2 block rounded border border-amber-400/25 bg-amber-400/10 px-2 py-1.5 text-xs leading-5 text-amber-100"
+          >
+            {freshnessNotice}
+          </output>
+        )}
+        {protectionMessage && (
+          <p className="mt-2 rounded border border-amber-400/25 bg-amber-400/10 px-2 py-1.5 text-xs leading-5 text-amber-100">
+            {protectionMessage}
+          </p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function parseNumber(value: string | string[] | undefined) {
@@ -228,7 +394,6 @@ export function AtlasShell({
     filters,
     bounds,
   );
-  const protectionMessage = sourceProtectionMessage(health?.requestControl);
   const {
     quality,
     state: qualityState,
@@ -555,37 +720,7 @@ export function AtlasShell({
                 </div>
               </section>
 
-              <section aria-labelledby="source-title">
-                <h2
-                  id="source-title"
-                  className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
-                >
-                  <Database className="size-4" aria-hidden="true" />
-                  Source health
-                </h2>
-                <div className="rounded-md border bg-card/55 p-3">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span
-                      className={`size-2 rounded-full ${sourceStatusColor(health?.status)}`}
-                    />
-                    {sourceStatusLabel(health?.status)}
-                  </div>
-                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-                    {sourceFreshness(health?.lastSuccessAt)}. Stored results
-                    remain available during upstream interruptions.
-                  </p>
-                  {health?.lastRun && (
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      {syncRunSummary(health.lastRun)}
-                    </p>
-                  )}
-                  {protectionMessage && (
-                    <p className="mt-2 rounded border border-amber-400/25 bg-amber-400/10 px-2 py-1.5 text-xs leading-5 text-amber-100">
-                      {protectionMessage}
-                    </p>
-                  )}
-                </div>
-              </section>
+              <SourceHealthPanel health={health} />
 
               <CatalogIntegrity
                 quality={quality}
@@ -686,6 +821,45 @@ export function AtlasShell({
                     onEventsVisibleChange={setEventsVisible}
                     onFaultsVisibleChange={setFaultsVisible}
                     onFaultOpacityChange={setFaultOpacity}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <Sheet>
+              <SheetTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="size-11 px-0"
+                    aria-label="Open data status"
+                    title="Data status"
+                  />
+                }
+              >
+                <Database className="size-4" aria-hidden="true" />
+              </SheetTrigger>
+              <SheetContent
+                side="left"
+                className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
+              >
+                <SheetHeader>
+                  <SheetTitle>Data status</SheetTitle>
+                  <SheetDescription>
+                    AFAD synchronization freshness and stored catalog quality.
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="space-y-6 p-4">
+                  <SourceHealthPanel
+                    health={health}
+                    titleId="source-title-mobile"
+                  />
+                  <CatalogIntegrity
+                    titleId="integrity-title-mobile"
+                    quality={quality}
+                    state={qualityState}
+                    onRefresh={refreshQuality}
                   />
                 </div>
               </SheetContent>

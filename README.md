@@ -2,7 +2,7 @@
 
 A map-first, provenance-aware seismic exploration workspace for Türkiye.
 
-Current development version: **0.7.0-alpha.0**.
+Current development version: **0.8.0-alpha.0**.
 
 Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
 schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
@@ -80,6 +80,21 @@ observations available at the current frame; the map dims upcoming candidate
 members, preserves previously observed members, and marks the current event
 without repeatedly moving the camera. Playback is an exploratory rendering of
 reported origin times, not a physical simulation or forecast.
+
+The first v0.8 data-trust slice separates upstream operational health from
+catalog freshness. Source health reports when freshness was evaluated, the age
+of the last successful synchronization, explicit fresh/delayed/stale states,
+and the next expected hourly run. The atlas warns when the stored catalog is
+late or more than three hours old while making clear that previously stored
+results remain available. Protective AFAD circuit-breaker state continues to be
+reported independently, so a recent failed attempt is not confused with stale
+data.
+
+The same health contract includes an independent scheduler watchdog. It reads
+the latest `scheduled` ingestion run rather than the latest run of any kind, so
+a manual synchronization cannot hide a missing Cloudflare Cron trigger. The
+watchdog reports healthy, running, overdue, or missing; a two-hour gap is
+considered overdue and is surfaced separately from AFAD upstream failures.
 
 ## Requirements
 

@@ -136,47 +136,69 @@ export const EventsResponseSchema = z.object({
   events: z.array(CatalogEventSchema),
 });
 
+const IngestionRunSummarySchema = z.object({
+  id: z.string().min(1),
+  trigger: z.enum(['manual', 'scheduled']),
+  windowKind: z.enum([
+    'manual',
+    'bootstrap',
+    'incremental',
+    'reconcile',
+    'backfill',
+  ]),
+  windowStart: z.iso.datetime({ offset: true }),
+  windowEnd: z.iso.datetime({ offset: true }),
+  status: z.enum(['running', 'succeeded', 'failed']),
+  startedAt: z.iso.datetime({ offset: true }),
+  completedAt: z.iso.datetime({ offset: true }).nullable(),
+  durationMs: z.number().int().nonnegative().nullable(),
+  attempts: z.number().int().nonnegative(),
+  splits: z.number().int().nonnegative(),
+  writeBatches: z.number().int().nonnegative(),
+  fetched: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  duplicatesDropped: z.number().int().nonnegative(),
+  inserted: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  unchanged: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+});
+
 export const SourceHealthEntrySchema = z.object({
   status: z.enum(['ok', 'delayed', 'error', 'never_synced']),
   lastAttemptAt: z.iso.datetime({ offset: true }).nullable(),
   lastSuccessAt: z.iso.datetime({ offset: true }).nullable(),
   latestEventTime: z.iso.datetime({ offset: true }).nullable(),
   consecutiveFailures: z.number().int().nonnegative(),
+  freshness: z.object({
+    state: z.enum(['fresh', 'delayed', 'stale', 'unknown']),
+    checkedAt: z.iso.datetime({ offset: true }),
+    ageMinutes: z.number().int().nonnegative().nullable(),
+  }),
+  schedule: z.object({
+    cadenceMinutes: z.number().int().positive(),
+    delayedAfterMinutes: z.number().int().positive(),
+    staleAfterMinutes: z.number().int().positive(),
+    nextScheduledAt: z.iso.datetime({ offset: true }),
+  }),
+  scheduler: z.object({
+    state: z.enum(['healthy', 'overdue', 'missing', 'running']),
+    checkedAt: z.iso.datetime({ offset: true }),
+    overdueAfterMinutes: z.number().int().positive(),
+    lastScheduledAt: z.iso.datetime({ offset: true }).nullable(),
+    lastScheduledCompletedAt: z.iso.datetime({ offset: true }).nullable(),
+    lastScheduledStatus: z
+      .enum(['running', 'succeeded', 'failed'])
+      .nullable(),
+  }),
   requestControl: z.object({
     status: z.enum(['closed', 'open']),
     retryAt: z.iso.datetime({ offset: true }).nullable(),
     errorCode: z.string().nullable(),
   }),
-  lastRun: z
-    .object({
-      id: z.string().min(1),
-      trigger: z.enum(['manual', 'scheduled']),
-      windowKind: z.enum([
-        'manual',
-        'bootstrap',
-        'incremental',
-        'reconcile',
-        'backfill',
-      ]),
-      windowStart: z.iso.datetime({ offset: true }),
-      windowEnd: z.iso.datetime({ offset: true }),
-      status: z.enum(['running', 'succeeded', 'failed']),
-      startedAt: z.iso.datetime({ offset: true }),
-      completedAt: z.iso.datetime({ offset: true }).nullable(),
-      durationMs: z.number().int().nonnegative().nullable(),
-      attempts: z.number().int().nonnegative(),
-      splits: z.number().int().nonnegative(),
-      writeBatches: z.number().int().nonnegative(),
-      fetched: z.number().int().nonnegative(),
-      accepted: z.number().int().nonnegative(),
-      rejected: z.number().int().nonnegative(),
-      duplicatesDropped: z.number().int().nonnegative(),
-      inserted: z.number().int().nonnegative(),
-      updated: z.number().int().nonnegative(),
-      unchanged: z.number().int().nonnegative(),
-      errorCode: z.string().nullable(),
-    })
-    .nullable(),
+  lastRun: IngestionRunSummarySchema.nullable(),
+  lastScheduledRun: IngestionRunSummarySchema.nullable(),
 });
 
 export const SourceHealthResponseSchema = z.object({

@@ -63,6 +63,17 @@ describe('source health diagnostics', () => {
     );
 
     expect(health.AFAD.status).toBe('delayed');
+    expect(health.AFAD.freshness.state).toBe('stale');
+    expect(health.AFAD.schedule).toMatchObject({
+      cadenceMinutes: 60,
+      delayedAfterMinutes: 75,
+      staleAfterMinutes: 180,
+    });
+    expect(health.AFAD.scheduler).toMatchObject({
+      state: 'overdue',
+      overdueAfterMinutes: 120,
+      lastScheduledStatus: 'succeeded',
+    });
     expect(health.AFAD.requestControl).toMatchObject({
       status: 'open',
       errorCode: 'AFAD_HTTP_429',
@@ -87,5 +98,66 @@ describe('source health diagnostics', () => {
       unchanged: 115,
       errorCode: null,
     });
+    expect(health.AFAD.lastScheduledRun).toMatchObject({
+      id: 'run-1',
+      trigger: 'scheduled',
+    });
+  });
+
+  it('does not let a manual run mask a missing scheduler', async () => {
+    const now = Date.now();
+    const database = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return {
+              async first() {
+                if (sql.includes('FROM source_health')) {
+                  return {
+                    source: 'AFAD',
+                    status: 'ok',
+                    last_attempt_at: now - 30_000,
+                    last_success_at: now - 29_000,
+                    latest_event_time: now - 60_000,
+                    consecutive_failures: 0,
+                  };
+                }
+                if (sql.includes('FROM source_request_control')) return null;
+                if (sql.includes("trigger = 'scheduled'")) return null;
+                return {
+                  id: 'manual-run',
+                  trigger: 'manual',
+                  window_kind: 'manual',
+                  window_start: now - 60_000,
+                  window_end: now,
+                  status: 'succeeded',
+                  started_at: now - 30_000,
+                  completed_at: now - 29_000,
+                  attempts: 1,
+                  splits: 0,
+                  write_batches: 1,
+                  fetched: 1,
+                  accepted: 1,
+                  rejected: 0,
+                  duplicates_dropped: 0,
+                  inserted: 1,
+                  updated: 0,
+                  unchanged: 0,
+                  error_code: null,
+                };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const health = SourceHealthResponseSchema.parse(
+      await getSourceHealth(database),
+    );
+
+    expect(health.AFAD.lastRun?.trigger).toBe('manual');
+    expect(health.AFAD.lastScheduledRun).toBeNull();
+    expect(health.AFAD.scheduler.state).toBe('missing');
   });
 });
