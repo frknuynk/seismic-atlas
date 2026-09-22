@@ -4,6 +4,7 @@ import {
   manualSyncRateLimitedResponse,
   withSecurityHeaders,
 } from '@/worker/security';
+import { observeRequest } from '@/worker/observability';
 
 describe('security perimeter', () => {
   afterEach(() => {
@@ -52,7 +53,9 @@ describe('security perimeter', () => {
   });
 
   it('fails open when the optional limiter is unavailable', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
     const limit = vi.fn().mockRejectedValue(new Error('binding unavailable'));
 
     await expect(
@@ -63,7 +66,10 @@ describe('security perimeter', () => {
   });
 
   it('returns a stable 429 envelope with retry guidance', async () => {
-    const response = manualSyncRateLimitedResponse();
+    const request = observeRequest(new Request('http://localhost/sync'), {
+      requestId: 'test-request-id',
+    }).request;
+    const response = manualSyncRateLimitedResponse(request);
 
     expect(response.status).toBe(429);
     expect(response.headers.get('Cache-Control')).toBe('no-store');
@@ -72,6 +78,7 @@ describe('security perimeter', () => {
       error: {
         code: 'RATE_LIMITED',
         message: 'Too many manual synchronization requests. Try again shortly.',
+        requestId: 'test-request-id',
       },
     });
   });

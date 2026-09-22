@@ -22,10 +22,15 @@ describe('GET /api/v1/health', () => {
     const response = await api.request('http://localhost/api/v1/missing');
 
     expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toEqual({
+    const payload = await response.json();
+    expect(response.headers.get('X-Request-ID')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f-]{27}$/,
+    );
+    expect(payload).toMatchObject({
       error: {
         code: 'NOT_FOUND',
         message: 'The requested API route does not exist.',
+        requestId: expect.any(String),
       },
     });
   });

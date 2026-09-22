@@ -146,6 +146,20 @@ and production HTTPS transport headers. No cross-origin API access is enabled;
 add an explicit origin allowlist only when a separate trusted client requires
 it.
 
+Every Worker request receives a server-generated `X-Request-ID`. API error
+envelopes return the same identifier so an operator can correlate a reported
+failure with structured Worker logs. Client-provided request IDs are never used
+for correlation. Custom logs omit query strings, authorization values, and IP
+addresses; they record bounded operational fields such as route path, status,
+duration, ingestion run ID, and sanitized error metadata.
+
+Cloudflare log persistence and invocation logs are enabled at full sampling
+within the Free-plan quota. Distributed tracing is explicitly disabled, so the
+application does not create trace events or consume trace capacity. Manual
+synchronization outcomes and scheduled AFAD cron runs emit structured start,
+completion, skip, and failure events. API statuses 401, 429, and 5xx are
+classified explicitly for dashboard queries and alerting.
+
 The AFAD adapter identifies Seismic Atlas on every request, limits retries to a
 bounded exponential backoff starting at two seconds with jitter, and honors the
 upstream `Retry-After` header. A persistent D1 circuit breaker pauses requests

@@ -3,6 +3,12 @@ import { getD1 } from '@/db';
 import { AfadSyncRequestSchema } from '@/shared/schemas';
 import { runAfadSync } from '@/worker/ingestion/afad';
 import {
+  apiErrorResponse,
+  logApiError,
+  logEvent,
+  requestIdFrom,
+} from '@/worker/observability';
+import {
   isManualSyncRateLimited,
   manualSyncRateLimitedResponse,
 } from '@/worker/security';
@@ -17,21 +23,19 @@ function isAuthorized(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const requestId = requestIdFrom(request);
+
   if (!isAuthorized(request)) {
-    return Response.json(
-      {
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Valid sync credentials required.',
-        },
-      },
-      { status: 401 },
-    );
+    return apiErrorResponse(request, {
+      code: 'UNAUTHORIZED',
+      message: 'Valid sync credentials required.',
+      status: 401,
+      headers: { 'Cache-Control': 'no-store' },
+    });
   }
 
-  if (await isManualSyncRateLimited(env.MANUAL_SYNC_RATE_LIMIT)) {
-    console.warn('Manual AFAD synchronization request rate limited');
-    return manualSyncRateLimitedResponse();
+  if (await isManualSyncRateLimited(env.MANUAL_SYNC_RATE_LIMIT, requestId)) {
+    return manualSyncRateLimitedResponse(request);
   }
 
   let body: unknown = { mode: 'sync' };
@@ -39,15 +43,11 @@ export async function POST(request: Request) {
     const text = await request.text();
     if (text) body = JSON.parse(text);
   } catch {
-    return Response.json(
-      {
-        error: {
-          code: 'INVALID_SYNC_REQUEST',
-          message: 'Request body must be valid JSON.',
-        },
-      },
-      { status: 400 },
-    );
+    return apiErrorResponse(request, {
+      code: 'INVALID_SYNC_REQUEST',
+      message: 'Request body must be valid JSON.',
+      status: 400,
+    });
   }
 
   const parsed = AfadSyncRequestSchema.safeParse(body);
@@ -56,18 +56,20 @@ export async function POST(request: Request) {
     (parsed.data.mode === 'backfill' &&
       Date.parse(parsed.data.end) > Date.now())
   ) {
-    return Response.json(
-      {
-        error: {
-          code: 'INVALID_SYNC_REQUEST',
-          message:
-            'Use sync mode or a past-facing backfill window of at most 24 hours.',
-          issues: parsed.success ? [] : parsed.error.issues,
-        },
-      },
-      { status: 400 },
-    );
+    return apiErrorResponse(request, {
+      code: 'INVALID_SYNC_REQUEST',
+      message:
+        'Use sync mode or a past-facing backfill window of at most 24 hours.',
+      status: 400,
+      details: { issues: parsed.success ? [] : parsed.error.issues },
+    });
   }
+
+  const startedAt = Date.now();
+  logEvent('info', 'sync.afad.started', {
+    requestId,
+    mode: parsed.data.mode,
+  });
 
   try {
     const result = await runAfadSync(
@@ -81,18 +83,27 @@ export async function POST(request: Request) {
           }
         : { windowMinutes: parsed.data.windowMinutes },
     );
+    logEvent(
+      result.status === 'succeeded' ? 'info' : 'warn',
+      'sync.afad.completed',
+      {
+        requestId,
+        runId: result.runId,
+        status: result.status,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        reason: 'reason' in result ? result.reason : null,
+      },
+    );
     return Response.json({ source: 'AFAD', ...result });
   } catch (error) {
-    console.error('AFAD synchronization failed', error);
-    return Response.json(
-      {
-        error: {
-          code: 'AFAD_SYNC_FAILED',
-          message:
-            'AFAD synchronization failed; stored catalog data was preserved.',
-        },
-      },
-      { status: 502 },
-    );
+    logApiError(request, 'sync.afad.failed', error, {
+      durationMs: Math.max(0, Date.now() - startedAt),
+    });
+    return apiErrorResponse(request, {
+      code: 'AFAD_SYNC_FAILED',
+      message:
+        'AFAD synchronization failed; stored catalog data was preserved.',
+      status: 502,
+    });
   }
 }

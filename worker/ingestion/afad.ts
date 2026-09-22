@@ -20,6 +20,7 @@ import {
   sourceCircuitGate,
   sourceCircuitSuccessStatement,
 } from '@/worker/ingestion/source-control';
+import { logEvent, serializeError } from '@/worker/observability';
 
 const SOURCE = 'AFAD';
 const ADAPTER_VERSION = 'afad-v3';
@@ -481,7 +482,10 @@ export async function runAfadSync(
       }
       if (statements.length > 0) await db.batch(statements);
     } catch (auditError) {
-      console.error('AFAD sync failure could not be recorded', auditError);
+      logEvent('error', 'ingestion.afad.failure_audit_failed', {
+        runId,
+        error: serializeError(auditError),
+      });
     }
     throw error;
   } finally {
@@ -489,7 +493,10 @@ export async function runAfadSync(
       try {
         await releaseLease(db, runId);
       } catch (error) {
-        console.error('AFAD sync lease could not be released', error);
+        logEvent('error', 'ingestion.afad.lease_release_failed', {
+          runId,
+          error: serializeError(error),
+        });
       }
     }
   }

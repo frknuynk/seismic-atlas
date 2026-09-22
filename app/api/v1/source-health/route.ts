@@ -1,8 +1,9 @@
 import { getD1 } from '@/db';
 import { SourceHealthResponseSchema } from '@/shared/schemas';
 import { getSourceHealth } from '@/worker/catalog';
+import { apiErrorResponse, logApiError } from '@/worker/observability';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const response = SourceHealthResponseSchema.parse(
       await getSourceHealth(getD1()),
@@ -11,15 +12,11 @@ export async function GET() {
       headers: { 'Cache-Control': 'public, max-age=15' },
     });
   } catch (error) {
-    console.error('Source health query failed', error);
-    return Response.json(
-      {
-        error: {
-          code: 'SOURCE_HEALTH_UNAVAILABLE',
-          message: 'Source health is temporarily unavailable.',
-        },
-      },
-      { status: 503 },
-    );
+    logApiError(request, 'api.source_health.query_failed', error);
+    return apiErrorResponse(request, {
+      code: 'SOURCE_HEALTH_UNAVAILABLE',
+      message: 'Source health is temporarily unavailable.',
+      status: 503,
+    });
   }
 }

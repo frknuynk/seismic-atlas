@@ -1,3 +1,9 @@
+import {
+  apiErrorResponse,
+  logEvent,
+  serializeError,
+} from '@/worker/observability';
+
 const MANUAL_SYNC_RETRY_AFTER_SECONDS = 60;
 
 const BASE_SECURITY_HEADERS = {
@@ -50,6 +56,7 @@ export function withSecurityHeaders(request: Request, response: Response) {
 
 export async function isManualSyncRateLimited(
   rateLimiter: RateLimit | undefined,
+  requestId?: string,
 ) {
   if (!rateLimiter) return false;
 
@@ -59,25 +66,22 @@ export async function isManualSyncRateLimited(
   } catch (error) {
     // The D1 lease and bearer token still protect the operation. A temporary
     // limiter outage must not disable an authorized recovery sync.
-    console.error('Manual sync rate limiter unavailable; allowing request', error);
+    logEvent('error', 'rate_limit.binding_failed', {
+      requestId,
+      error: serializeError(error),
+    });
     return false;
   }
 }
 
-export function manualSyncRateLimitedResponse() {
-  return Response.json(
-    {
-      error: {
-        code: 'RATE_LIMITED',
-        message: 'Too many manual synchronization requests. Try again shortly.',
-      },
+export function manualSyncRateLimitedResponse(request: Request) {
+  return apiErrorResponse(request, {
+    code: 'RATE_LIMITED',
+    message: 'Too many manual synchronization requests. Try again shortly.',
+    status: 429,
+    headers: {
+      'Cache-Control': 'no-store',
+      'Retry-After': String(MANUAL_SYNC_RETRY_AFTER_SECONDS),
     },
-    {
-      status: 429,
-      headers: {
-        'Cache-Control': 'no-store',
-        'Retry-After': String(MANUAL_SYNC_RETRY_AFTER_SECONDS),
-      },
-    },
-  );
+  });
 }

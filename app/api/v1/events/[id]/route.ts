@@ -1,9 +1,10 @@
 import { getD1 } from '@/db';
 import { EventDetailSchema } from '@/shared/schemas';
 import { getEventDetail } from '@/worker/catalog';
+import { apiErrorResponse, logApiError } from '@/worker/observability';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -11,25 +12,24 @@ export async function GET(
     const event = await getEventDetail(getD1(), decodeURIComponent(id));
 
     if (!event) {
-      return Response.json(
-        { error: { code: 'EVENT_NOT_FOUND', message: 'Event not found.' } },
-        { status: 404 },
-      );
+      return apiErrorResponse(request, {
+        code: 'EVENT_NOT_FOUND',
+        message: 'Event not found.',
+        status: 404,
+      });
     }
 
     return Response.json(EventDetailSchema.parse(event), {
-      headers: { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' },
+      headers: {
+        'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
+      },
     });
   } catch (error) {
-    console.error('Event detail query failed', error);
-    return Response.json(
-      {
-        error: {
-          code: 'EVENT_DETAIL_UNAVAILABLE',
-          message: 'Event detail is temporarily unavailable.',
-        },
-      },
-      { status: 503 },
-    );
+    logApiError(request, 'api.event_detail.query_failed', error);
+    return apiErrorResponse(request, {
+      code: 'EVENT_DETAIL_UNAVAILABLE',
+      message: 'Event detail is temporarily unavailable.',
+      status: 503,
+    });
   }
 }

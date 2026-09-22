@@ -1,6 +1,7 @@
 import { getD1 } from '@/db';
 import { EventQuerySchema, EventsResponseSchema } from '@/shared/schemas';
 import { InvalidCatalogCursorError, queryEvents } from '@/worker/catalog';
+import { apiErrorResponse, logApiError } from '@/worker/observability';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -9,16 +10,12 @@ export async function GET(request: Request) {
   );
 
   if (!parsed.success) {
-    return Response.json(
-      {
-        error: {
-          code: 'INVALID_EVENT_QUERY',
-          message: 'Use a valid bounded time range and numeric map filters.',
-          issues: parsed.error.issues,
-        },
-      },
-      { status: 400 },
-    );
+    return apiErrorResponse(request, {
+      code: 'INVALID_EVENT_QUERY',
+      message: 'Use a valid bounded time range and numeric map filters.',
+      status: 400,
+      details: { issues: parsed.error.issues },
+    });
   }
 
   try {
@@ -32,25 +29,17 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (error instanceof InvalidCatalogCursorError) {
-      return Response.json(
-        {
-          error: {
-            code: 'INVALID_EVENT_CURSOR',
-            message: 'Restart the catalog query without the supplied cursor.',
-          },
-        },
-        { status: 400 },
-      );
+      return apiErrorResponse(request, {
+        code: 'INVALID_EVENT_CURSOR',
+        message: 'Restart the catalog query without the supplied cursor.',
+        status: 400,
+      });
     }
-    console.error('Event query failed', error);
-    return Response.json(
-      {
-        error: {
-          code: 'CATALOG_UNAVAILABLE',
-          message: 'The stored earthquake catalog is temporarily unavailable.',
-        },
-      },
-      { status: 503 },
-    );
+    logApiError(request, 'api.events.query_failed', error);
+    return apiErrorResponse(request, {
+      code: 'CATALOG_UNAVAILABLE',
+      message: 'The stored earthquake catalog is temporarily unavailable.',
+      status: 503,
+    });
   }
 }

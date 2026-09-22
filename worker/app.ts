@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { ServiceHealthSchema } from '@/shared/schemas';
+import { apiErrorResponse } from '@/worker/observability';
 
 export type Bindings = {
   DB: D1Database;
@@ -23,13 +24,9 @@ api.get('/api/v1/health', (context) => {
 });
 
 api.notFound((context) =>
-  context.json(
-    {
-      error: {
-        code: 'NOT_FOUND',
-        message: 'The requested API route does not exist.',
-      },
-    },
-    404,
-  ),
+  apiErrorResponse(context.req.raw, {
+    code: 'NOT_FOUND',
+    message: 'The requested API route does not exist.',
+    status: 404,
+  }),
 );
