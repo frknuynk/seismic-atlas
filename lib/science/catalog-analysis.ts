@@ -4,7 +4,7 @@ import {
   type SequenceAnalysis,
 } from '@/lib/science/seismic-sequences';
 
-export const CATALOG_ANALYSIS_VERSION = 'catalog-analysis-v2';
+export const CATALOG_ANALYSIS_VERSION = 'catalog-analysis-v3';
 
 export function catalogAnalysisKey(events: CatalogEvent[]) {
   return JSON.stringify(
@@ -61,14 +61,17 @@ export type CatalogAnalysis = {
   eventCount: number;
   firstEventTime: string | null;
   lastEventTime: string | null;
-  maximumMagnitude: number | null;
   magnitudeCoveragePercent: number;
   depthCoveragePercent: number;
-  magnitudeTypes: Array<{ type: string; count: number }>;
+  magnitudeGroups: Array<{
+    type: string;
+    count: number;
+    maximum: number | null;
+    histogram: HistogramBin[];
+    frequencyMagnitude: FrequencyMagnitudePoint[];
+  }>;
   timeHistogram: TimeHistogramBin[];
-  magnitudeHistogram: HistogramBin[];
   depthHistogram: HistogramBin[];
-  frequencyMagnitude: FrequencyMagnitudePoint[];
   sequences: SequenceAnalysis;
   quality: {
     status: 'empty' | 'limited' | 'descriptive';
@@ -187,13 +190,24 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
   const depths = events.flatMap((event) =>
     event.depthKm === null ? [] : [event.depthKm],
   );
-  const magnitudeTypeCounts = new Map<string, number>();
+  const magnitudeValuesByType = new Map<string, number[]>();
   for (const event of events) {
     const type = event.magnitudeType ?? 'Unspecified';
-    magnitudeTypeCounts.set(type, (magnitudeTypeCounts.get(type) ?? 0) + 1);
+    const values = magnitudeValuesByType.get(type) ?? [];
+    if (event.magnitude !== null) values.push(event.magnitude);
+    magnitudeValuesByType.set(type, values);
   }
-  const magnitudeTypes = [...magnitudeTypeCounts]
-    .map(([type, count]) => ({ type, count }))
+  const magnitudeGroups = [...magnitudeValuesByType]
+    .map(([type, values]) => ({
+      type,
+      count: events.filter(
+        (event) => (event.magnitudeType ?? 'Unspecified') === type,
+      ).length,
+      maximum: values.length > 0 ? Math.max(...values) : null,
+      histogram: values.length >= 10 ? numericHistogram(values, 0.5) : [],
+      frequencyMagnitude:
+        values.length >= 50 ? frequencyMagnitude(values) : [],
+    }))
     .sort(
       (left, right) =>
         right.count - left.count || left.type.localeCompare(right.type),
@@ -209,7 +223,7 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
         'This subset is small; the distributions are descriptive only.',
       );
     }
-    if (magnitudeTypes.length > 1) {
+    if (magnitudeGroups.length > 1) {
       messages.push(
         'Multiple magnitude types are present and have not been homogenized.',
       );
@@ -230,7 +244,6 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
       times.length > 0 ? new Date(Math.min(...times)).toISOString() : null,
     lastEventTime:
       times.length > 0 ? new Date(Math.max(...times)).toISOString() : null,
-    maximumMagnitude: magnitudes.length > 0 ? Math.max(...magnitudes) : null,
     magnitudeCoveragePercent:
       events.length === 0
         ? 0
@@ -239,11 +252,9 @@ export function analyzeCatalog(events: CatalogEvent[]): CatalogAnalysis {
       events.length === 0
         ? 0
         : Math.round((depths.length / events.length) * 100),
-    magnitudeTypes,
+    magnitudeGroups,
     timeHistogram: timeHistogram(times),
-    magnitudeHistogram: numericHistogram(magnitudes, 0.5),
     depthHistogram: depthHistogram(depths),
-    frequencyMagnitude: frequencyMagnitude(magnitudes),
     sequences,
     quality: {
       status:

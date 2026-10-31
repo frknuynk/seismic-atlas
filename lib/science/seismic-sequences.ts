@@ -1,6 +1,6 @@
 import type { CatalogEvent } from '@/shared/schemas';
 
-export const SEISMIC_SEQUENCE_VERSION = 'sequence-candidates-v1';
+export const SEISMIC_SEQUENCE_VERSION = 'sequence-candidates-v2';
 
 export const DEFAULT_SEQUENCE_PARAMETERS = {
   maxNeighborDistanceKm: 30,
@@ -23,8 +23,13 @@ export type SeismicSequenceCandidate = {
   durationHours: number;
   centroid: { latitude: number; longitude: number };
   spatialRadiusKm: number;
-  maximumMagnitude: number | null;
-  largestEventId: string;
+  magnitudeGroups: Array<{
+    type: string;
+    count: number;
+    maximum: number;
+    largestEventId: string;
+  }>;
+  representativeEventId: string;
   representativePlace: string | null;
 };
 
@@ -134,17 +139,32 @@ function validateParameters(parameters: SequenceParameters) {
   }
 }
 
-function largestEvent(events: IndexedEvent[]) {
-  return [...events].sort((left, right) => {
-    const magnitudeDifference =
-      (right.event.magnitude ?? Number.NEGATIVE_INFINITY) -
-      (left.event.magnitude ?? Number.NEGATIVE_INFINITY);
-    return (
-      magnitudeDifference ||
-      left.timeMs - right.timeMs ||
-      left.event.id.localeCompare(right.event.id)
-    );
-  })[0]!;
+function magnitudeGroups(events: IndexedEvent[]) {
+  const groups = new Map<string, IndexedEvent[]>();
+  for (const item of events) {
+    if (item.event.magnitude === null) continue;
+    const type = item.event.magnitudeType?.trim() || 'Unspecified';
+    const values = groups.get(type) ?? [];
+    values.push(item);
+    groups.set(type, values);
+  }
+
+  return [...groups]
+    .map(([type, values]) => {
+      const largest = [...values].sort(
+        (left, right) =>
+          right.event.magnitude! - left.event.magnitude! ||
+          left.timeMs - right.timeMs ||
+          left.event.id.localeCompare(right.event.id),
+      )[0]!;
+      return {
+        type,
+        count: values.length,
+        maximum: largest.event.magnitude!,
+        largestEventId: largest.event.id,
+      };
+    })
+    .sort((left, right) => left.type.localeCompare(right.type));
 }
 
 function candidateFrom(events: IndexedEvent[]): SeismicSequenceCandidate {
@@ -160,10 +180,15 @@ function candidateFrom(events: IndexedEvent[]): SeismicSequenceCandidate {
     chronological.reduce((sum, item) => sum + item.event.longitude, 0) /
     chronological.length;
   const centroid = { latitude, longitude };
-  const representative = largestEvent(chronological);
-  const maximumMagnitude = representative.event.magnitude;
   const startMs = chronological[0]!.timeMs;
   const endMs = chronological.at(-1)!.timeMs;
+  const representative = [...chronological].sort(
+    (left, right) =>
+      epicentralDistanceKm(left.event, centroid) -
+        epicentralDistanceKm(right.event, centroid) ||
+      left.timeMs - right.timeMs ||
+      left.event.id.localeCompare(right.event.id),
+  )[0]!;
 
   return {
     id: `sequence-${stableHash([...eventIds].sort())}`,
@@ -184,8 +209,8 @@ function candidateFrom(events: IndexedEvent[]): SeismicSequenceCandidate {
       ),
       2,
     ),
-    maximumMagnitude,
-    largestEventId: representative.event.id,
+    magnitudeGroups: magnitudeGroups(chronological),
+    representativeEventId: representative.event.id,
     representativePlace: representative.event.place,
   };
 }
@@ -295,9 +320,7 @@ export function detectSequenceCandidates(
     .sort(
       (left, right) =>
         right.eventCount - left.eventCount ||
-        (right.maximumMagnitude ?? Number.NEGATIVE_INFINITY) -
-          (left.maximumMagnitude ?? Number.NEGATIVE_INFINITY) ||
-        Date.parse(right.endTime) - Date.parse(left.endTime) ||
+        left.startTime.localeCompare(right.startTime) ||
         left.id.localeCompare(right.id),
     );
   const clusteredEventCount = candidates.reduce(

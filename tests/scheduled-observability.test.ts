@@ -39,11 +39,10 @@ describe('scheduled AFAD observability', () => {
     ).resolves.toMatchObject({ status: 'skipped' });
 
     expect(runSync).toHaveBeenCalledWith({}, { trigger: 'scheduled' });
-    expect(runRetention).toHaveBeenCalledWith(
-      {},
-      Date.UTC(2026, 8, 19, 13, 7),
-    );
-    expect(findLog(consoleInfo.mock.calls, 'cron.afad_sync.started')).toMatchObject({
+    expect(runRetention).not.toHaveBeenCalled();
+    expect(
+      findLog(consoleInfo.mock.calls, 'cron.afad_sync.started'),
+    ).toMatchObject({
       event: 'cron.afad_sync.started',
       correlationId: 'correlation-id',
       scheduledTime: '2026-09-19T13:07:00.000Z',
@@ -55,6 +54,38 @@ describe('scheduled AFAD observability', () => {
       status: 'skipped',
       reason: 'sync_in_progress',
       durationMs: 75,
+    });
+  });
+
+  it('runs retention after a successful sync and includes it in cron failure handling', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+    const order: string[] = [];
+    const runSync = vi.fn().mockImplementation(async () => {
+      order.push('sync');
+      return { runId: 'run-id', status: 'succeeded' };
+    });
+    const retentionFailure = new Error('retention unavailable');
+    const runRetention = vi.fn().mockImplementation(async () => {
+      order.push('retention');
+      throw retentionFailure;
+    });
+
+    await expect(
+      runObservedScheduledAfadSync({} as D1Database, {
+        scheduledTime: Date.UTC(2026, 8, 19, 13, 7),
+        runSync,
+        runRetention,
+      }),
+    ).rejects.toBe(retentionFailure);
+
+    expect(order).toEqual(['sync', 'retention']);
+    expect(
+      findLog(consoleError.mock.calls, 'cron.afad_sync.failed'),
+    ).toMatchObject({
+      error: { message: 'retention unavailable' },
     });
   });
 

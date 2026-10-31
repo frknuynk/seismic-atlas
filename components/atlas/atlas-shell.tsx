@@ -13,10 +13,16 @@ import {
   Share2,
   SlidersHorizontal,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { EventDetailSheet } from '@/components/atlas/event-detail-sheet';
 import { EventSearch } from '@/components/atlas/event-search';
-import { CatalogLab } from '@/components/atlas/catalog-lab';
 import { CatalogIntegrity } from '@/components/atlas/catalog-integrity';
 import {
   FilterControls,
@@ -55,6 +61,12 @@ import {
   type TimeRangeHours,
   type TimelineWindow,
 } from '@/shared/atlas-state';
+
+const CatalogLab = lazy(() =>
+  import('@/components/atlas/catalog-lab').then((module) => ({
+    default: module.CatalogLab,
+  })),
+);
 
 function formatEventTime(value: string) {
   return new Intl.DateTimeFormat('en-GB', {
@@ -103,7 +115,10 @@ function sourceFreshnessBadge(
   if (freshness?.state === 'stale') {
     return { label: 'Stale', className: 'bg-rose-400/10 text-rose-100' };
   }
-  return { label: 'Awaiting data', className: 'bg-slate-400/10 text-slate-300' };
+  return {
+    label: 'Awaiting data',
+    className: 'bg-slate-400/10 text-slate-300',
+  };
 }
 
 function sourceFreshnessNotice(
@@ -130,11 +145,12 @@ function sourceScheduleMessage(
   return `5-minute updates · next scheduled check around ${nextRun}`;
 }
 
-function schedulerBadge(
-  scheduler: SourceHealthEntry['scheduler'] | undefined,
-) {
+function schedulerBadge(scheduler: SourceHealthEntry['scheduler'] | undefined) {
   if (scheduler?.state === 'healthy') {
-    return { label: 'Healthy', className: 'bg-emerald-400/10 text-emerald-200' };
+    return {
+      label: 'Healthy',
+      className: 'bg-emerald-400/10 text-emerald-200',
+    };
   }
   if (scheduler?.state === 'running') {
     return { label: 'Running', className: 'bg-cyan-400/10 text-cyan-100' };
@@ -178,9 +194,7 @@ function sourceProtectionMessage(
   return `AFAD requests are protectively paused until ${retryAt}${control.errorCode ? ` · ${control.errorCode}` : ''}.`;
 }
 
-function syncRunSummary(
-  run: NonNullable<SourceHealthEntry['lastRun']>,
-) {
+function syncRunSummary(run: NonNullable<SourceHealthEntry['lastRun']>) {
   if (run.status === 'running') return 'Synchronization is currently running.';
   if (run.status === 'failed') {
     return `Last run failed after ${run.attempts} attempt${run.attempts === 1 ? '' : 's'}${run.errorCode ? ` · ${run.errorCode}` : ''}.`;
@@ -207,6 +221,9 @@ function SourceHealthPanel({
   const scheduleMessage = sourceScheduleMessage(health?.schedule);
   const cronBadge = schedulerBadge(health?.scheduler);
   const cronNotice = schedulerNotice(health?.scheduler);
+  const catalogFreshButCronOverdue =
+    health?.freshness?.state === 'fresh' &&
+    health?.scheduler?.state === 'overdue';
 
   return (
     <section aria-labelledby={titleId}>
@@ -253,6 +270,10 @@ function SourceHealthPanel({
           Seismic Atlas is an independent application and is not an official
           AFAD service.
         </p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          This is not an early-warning, hazard-assessment, or earthquake
+          forecasting service.
+        </p>
         {scheduleMessage && (
           <p className="mt-1 flex items-center gap-1.5 text-xs leading-5 text-muted-foreground">
             <Clock3 className="size-3.5 shrink-0" aria-hidden="true" />
@@ -284,13 +305,22 @@ function SourceHealthPanel({
             tracing disabled
           </p>
         </div>
-        {cronNotice && (
+        {catalogFreshButCronOverdue && (
           <output
             aria-live="polite"
-            className="mt-2 block rounded border border-rose-400/25 bg-rose-400/10 px-2 py-1.5 text-xs leading-5 text-rose-100"
+            className="mt-2 block rounded border border-amber-400/25 bg-amber-400/10 px-2 py-1.5 text-xs leading-5 text-amber-100"
           >
-            {cronNotice}
+            The stored catalog is fresh, but its automatic update timer needs
+            attention.
           </output>
+        )}
+        {cronNotice && (
+          <details className="mt-2 rounded border bg-background/35 px-2 py-1.5 text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">
+              Scheduler diagnostics
+            </summary>
+            <p className="mt-1 leading-5">{cronNotice}</p>
+          </details>
         )}
         {health?.lastRun && (
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -657,6 +687,13 @@ export function AtlasShell({
           size="sm"
           className="size-11 px-0 sm:h-7 sm:w-auto sm:px-2.5"
           onClick={shareView}
+          aria-label={
+            shareState === 'copied'
+              ? 'Atlas view link copied'
+              : shareState === 'ready'
+                ? 'Atlas view URL ready to copy'
+                : 'Share current atlas view'
+          }
         >
           {shareState === 'copied' ? (
             <Check className="size-4" aria-hidden="true" />
@@ -728,10 +765,10 @@ export function AtlasShell({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
-                          {event.place ?? 'Unknown location'}
+                          {event.place ?? 'Location not reported by AFAD'}
                         </span>
                         <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {formatEventTime(event.originTime)} ·{' '}
+                          {formatEventTime(event.originTime)} TRT ·{' '}
                           {event.depthKm === null
                             ? 'depth unknown'
                             : `${event.depthKm.toFixed(1)} km deep`}
@@ -761,156 +798,167 @@ export function AtlasShell({
           </ScrollArea>
         </aside>
 
-        <div className="relative min-w-0 flex-1">
-          <MapCanvas
-            events={mapEvents}
-            eventsVisible={eventsVisible}
-            faultsVisible={faultsVisible}
-            faultOpacity={faultOpacity}
-            initialCamera={initialState.camera}
-            selectedEventId={activeFocusedSequenceEventId ?? selectedEventId}
-            eventFocusMode={
-              activeFocusedSequenceEventId ? 'sequence' : 'detail'
-            }
-            selectedSequenceId={activeSequenceId}
-            sequenceMembership={mapSequenceMembership}
-            sequencePlayback={activeSequencePlayback}
-            viewResetKey={mapResetKey}
-            nearestFaultId={nearestFault?.id ?? null}
-            onSelectEvent={handleEventSelection}
-            onViewportChange={handleBoundsChange}
-            onCameraChange={handleCameraChange}
-            onResetView={() => setCamera(null)}
-          />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            <MapCanvas
+              events={mapEvents}
+              eventsVisible={eventsVisible}
+              faultsVisible={faultsVisible}
+              faultOpacity={faultOpacity}
+              initialCamera={initialState.camera}
+              selectedEventId={activeFocusedSequenceEventId ?? selectedEventId}
+              eventFocusMode={
+                activeFocusedSequenceEventId ? 'sequence' : 'detail'
+              }
+              selectedSequenceId={activeSequenceId}
+              sequenceMembership={mapSequenceMembership}
+              sequencePlayback={activeSequencePlayback}
+              viewResetKey={mapResetKey}
+              nearestFaultId={nearestFault?.id ?? null}
+              onSelectEvent={handleEventSelection}
+              onViewportChange={handleBoundsChange}
+              onCameraChange={handleCameraChange}
+              onResetView={() => setCamera(null)}
+            />
 
-          <div className="absolute left-3 top-3 flex gap-2 md:hidden">
-            <Sheet>
-              <SheetTrigger
-                render={
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="min-h-11"
-                  />
-                }
-              >
-                <SlidersHorizontal className="size-4" aria-hidden="true" />
-                Filters
-              </SheetTrigger>
-              <SheetContent
-                side="left"
-                className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
-              >
-                <SheetHeader>
-                  <SheetTitle>Filter earthquakes</SheetTitle>
-                  <SheetDescription>
-                    Results update from the stored AFAD catalog.
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="p-4">
-                  <FilterControls
-                    filters={filters}
-                    resultCount={selectedEvents.length}
-                    onChange={handleFiltersChange}
-                    onReset={handleFiltersReset}
-                  />
-                </div>
-              </SheetContent>
-            </Sheet>
-
-            <Sheet>
-              <SheetTrigger
-                render={
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="min-h-11"
-                  />
-                }
-              >
-                <Layers3 className="size-4" aria-hidden="true" />
-                Layers
-              </SheetTrigger>
-              <SheetContent
-                side="left"
-                className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
-              >
-                <SheetHeader>
-                  <SheetTitle>Map layers</SheetTitle>
-                  <SheetDescription>
-                    Control what is visible over the terrain map.
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="p-4">
-                  <LayerControls
-                    controlId="earthquake-layer-mobile"
-                    eventsVisible={eventsVisible}
-                    faultsVisible={faultsVisible}
-                    faultOpacity={faultOpacity}
-                    eventCount={selectedEvents.length}
-                    onEventsVisibleChange={setEventsVisible}
-                    onFaultsVisibleChange={setFaultsVisible}
-                    onFaultOpacityChange={setFaultOpacity}
-                  />
-                </div>
-              </SheetContent>
-            </Sheet>
-
-            <Sheet>
-              <SheetTrigger
-                render={
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="size-11 px-0"
-                    aria-label="Open data status"
-                    title="Data status"
-                  />
-                }
-              >
-                <Database className="size-4" aria-hidden="true" />
-              </SheetTrigger>
-              <SheetContent
-                side="left"
-                className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
-              >
-                <SheetHeader>
-                  <SheetTitle>Data status</SheetTitle>
-                  <SheetDescription>
-                    AFAD synchronization freshness and stored catalog quality.
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="space-y-6 p-4">
-                  <SourceHealthPanel
-                    health={health?.AFAD ?? null}
-                    titleId="source-title-mobile"
-                  />
-                  {mode === 'lab' && (
-                    <CatalogIntegrity
-                      titleId="integrity-title-mobile"
-                      quality={quality}
-                      state={qualityState}
-                      onRefresh={refreshQuality}
+            <div className="absolute left-3 top-3 flex gap-2 md:hidden">
+              <Sheet>
+                <SheetTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-11"
                     />
-                  )}
-                </div>
-              </SheetContent>
-            </Sheet>
+                  }
+                >
+                  <SlidersHorizontal className="size-4" aria-hidden="true" />
+                  Filters
+                </SheetTrigger>
+                <SheetContent
+                  side="left"
+                  className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
+                >
+                  <SheetHeader>
+                    <SheetTitle>Filter earthquakes</SheetTitle>
+                    <SheetDescription>
+                      Results update from the stored AFAD catalog.
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="p-4">
+                    <FilterControls
+                      filters={filters}
+                      resultCount={selectedEvents.length}
+                      onChange={handleFiltersChange}
+                      onReset={handleFiltersReset}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
+
+              <Sheet>
+                <SheetTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-11"
+                    />
+                  }
+                >
+                  <Layers3 className="size-4" aria-hidden="true" />
+                  Layers
+                </SheetTrigger>
+                <SheetContent
+                  side="left"
+                  className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
+                >
+                  <SheetHeader>
+                    <SheetTitle>Map layers</SheetTitle>
+                    <SheetDescription>
+                      Control what is visible over the terrain map.
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="p-4">
+                    <LayerControls
+                      controlId="earthquake-layer-mobile"
+                      eventsVisible={eventsVisible}
+                      faultsVisible={faultsVisible}
+                      faultOpacity={faultOpacity}
+                      eventCount={selectedEvents.length}
+                      onEventsVisibleChange={setEventsVisible}
+                      onFaultsVisibleChange={setFaultsVisible}
+                      onFaultOpacityChange={setFaultOpacity}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
+
+              <Sheet>
+                <SheetTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-11"
+                      aria-label="Open data status"
+                      title="Data status"
+                    />
+                  }
+                >
+                  <Database className="size-4" aria-hidden="true" />
+                  Status
+                </SheetTrigger>
+                <SheetContent
+                  side="left"
+                  className="atlas-native-scrollbar w-[88vw] overflow-y-auto"
+                >
+                  <SheetHeader>
+                    <SheetTitle>Data status</SheetTitle>
+                    <SheetDescription>
+                      AFAD synchronization freshness and stored catalog quality.
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="space-y-6 p-4">
+                    <SourceHealthPanel
+                      health={health?.AFAD ?? null}
+                      titleId="source-title-mobile"
+                    />
+                    {mode === 'lab' && (
+                      <CatalogIntegrity
+                        titleId="integrity-title-mobile"
+                        quality={quality}
+                        state={qualityState}
+                        onRefresh={refreshQuality}
+                      />
+                    )}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
           </div>
 
           {mode === 'lab' ? (
-            <CatalogLab
-              events={selectedEvents}
-              completeness={completeness}
-              state={catalogAnalysis}
-              selectedSequenceId={activeSequenceId}
-              focusedSequenceEventId={activeFocusedSequenceEventId}
-              onSelectSequence={handleSequenceSelection}
-              onFocusSequenceEvent={handleFocusSequenceEvent}
-              onSequencePlaybackChange={handleSequencePlaybackChange}
-            />
+            <Suspense
+              fallback={
+                <div className="grid h-28 shrink-0 place-items-center border-t text-sm text-muted-foreground">
+                  Loading Catalog Lab…
+                </div>
+              }
+            >
+              <CatalogLab
+                events={selectedEvents}
+                completeness={completeness}
+                state={catalogAnalysis}
+                selectedSequenceId={activeSequenceId}
+                focusedSequenceEventId={activeFocusedSequenceEventId}
+                onSelectSequence={handleSequenceSelection}
+                onFocusSequenceEvent={handleFocusSequenceEvent}
+                onSequencePlaybackChange={handleSequencePlaybackChange}
+              />
+            </Suspense>
           ) : (
-            <section className="absolute inset-x-3 bottom-3 rounded-lg border bg-background/92 p-3 shadow-2xl backdrop-blur md:left-4 md:right-auto md:w-[430px] md:p-4">
+            <section className="shrink-0 border-t bg-background/95 p-3 backdrop-blur md:p-4">
               <div className="flex items-start gap-3">
                 <div className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                   <MapPin className="size-4" aria-hidden="true" />

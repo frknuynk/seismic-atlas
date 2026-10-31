@@ -51,9 +51,11 @@ describe('seismic sequence candidates', () => {
     expect(result.candidates[0]).toMatchObject({
       eventIds: ['AFAD:a', 'AFAD:b', 'AFAD:c'],
       eventCount: 3,
-      maximumMagnitude: 3.2,
-      largestEventId: 'AFAD:b',
-      representativePlace: 'b, Türkiye',
+      magnitudeGroups: [
+        { type: 'ML', count: 3, maximum: 3.2, largestEventId: 'AFAD:b' },
+      ],
+      representativeEventId: 'AFAD:a',
+      representativePlace: 'a, Türkiye',
       durationHours: 2,
     });
   });

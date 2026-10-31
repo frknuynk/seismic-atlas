@@ -1,0 +1,4 @@
+interface:
+  display_name: "Seismic Atlas Enthusiast QA"
+  short_description: "Test clarity and usability for earthquake enthusiasts"
+  default_prompt: "Use $seismic-atlas-enthusiast-qa to test Seismic Atlas as a curious non-specialist using real recent data."

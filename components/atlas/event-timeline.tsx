@@ -15,10 +15,12 @@ function sameWindow(first: TimelineWindow | null, second: TimelineWindow) {
   return first?.startMs === second.startMs && first.endMs === second.endMs;
 }
 
-function barColor(maxMagnitude: number | null) {
-  if (maxMagnitude === null || maxMagnitude < 3) return 'bg-cyan-300';
-  if (maxMagnitude < 4) return 'bg-yellow-400';
-  if (maxMagnitude < 5) return 'bg-orange-400';
+function barColor(maxMagnitudes: TimelineBucket['maxMagnitudes']) {
+  if (maxMagnitudes.length !== 1) return 'bg-violet-300';
+  const maximum = maxMagnitudes[0]!.value;
+  if (maximum < 3) return 'bg-cyan-300';
+  if (maximum < 4) return 'bg-yellow-400';
+  if (maximum < 5) return 'bg-orange-400';
   return 'bg-rose-400';
 }
 
@@ -34,9 +36,11 @@ function shortTime(value: number, rangeHours: TimeRangeHours) {
 
 function bucketLabel(bucket: TimelineBucket, rangeHours: TimeRangeHours) {
   const magnitude =
-    bucket.maxMagnitude === null
+    bucket.maxMagnitudes.length === 0
       ? ''
-      : `, maximum magnitude ${bucket.maxMagnitude.toFixed(1)}`;
+      : `, maximum by type ${bucket.maxMagnitudes
+          .map((item) => `${item.type} ${item.value.toFixed(1)}`)
+          .join(', ')}`;
   return `${shortTime(bucket.startMs, rangeHours)} to ${shortTime(
     bucket.endMs,
     rangeHours,
@@ -93,11 +97,12 @@ export function EventTimeline({
         )}
       </div>
 
-      <div
-        className="mt-2 flex h-16 items-end gap-0.5"
-        aria-label={`Earthquakes grouped into ${bucketHours}-hour time buckets`}
-      >
-        {buckets.map((bucket) => {
+      <div className="atlas-native-scrollbar mt-2 overflow-x-auto pb-2 md:overflow-visible md:pb-0">
+        <div
+          className="flex h-16 min-w-max items-end gap-1 md:min-w-0 md:gap-0.5"
+          aria-label={`Earthquakes grouped into ${bucketHours}-hour time buckets`}
+        >
+          {buckets.map((bucket) => {
           const selected = sameWindow(selectedWindow, bucket);
           const height = Math.max(8, (bucket.count / maximumCount) * 100);
           return (
@@ -112,18 +117,19 @@ export function EventTimeline({
               onFocus={() => onPreviewWindowChange(bucket)}
               onBlur={() => onPreviewWindowChange(null)}
               onClick={() => onSelectedWindowChange(selected ? null : bucket)}
-              className="group flex h-full min-w-0 flex-1 items-end rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="group flex h-full min-w-11 items-end rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-w-0 md:flex-1"
             >
               <span
                 aria-hidden="true"
                 style={{ height: `${height}%` }}
                 className={`block w-full rounded-sm opacity-65 transition group-hover:opacity-100 group-aria-pressed:ring-2 group-aria-pressed:ring-white group-aria-pressed:opacity-100 ${barColor(
-                  bucket.maxMagnitude,
+                  bucket.maxMagnitudes,
                 )}`}
               />
             </button>
           );
-        })}
+          })}
+        </div>
       </div>
 
       {buckets.length > 0 && (

@@ -5,7 +5,7 @@ const HOUR_MS = 60 * 60 * 1_000;
 
 export type TimelineBucket = TimelineWindow & {
   count: number;
-  maxMagnitude: number | null;
+  maxMagnitudes: Array<{ type: string; value: number }>;
 };
 
 export function timelineBucketHours(rangeHours: TimeRangeHours) {
@@ -23,7 +23,7 @@ export function eventInTimelineWindow(
 }
 
 export function buildTimelineBuckets(
-  events: Pick<CatalogEvent, 'originTime' | 'magnitude'>[],
+  events: Pick<CatalogEvent, 'originTime' | 'magnitude' | 'magnitudeType'>[],
   rangeHours: TimeRangeHours,
   nowMs: number,
 ) {
@@ -36,7 +36,7 @@ export function buildTimelineBuckets(
       startMs: startMs + index * bucketMs,
       endMs: startMs + (index + 1) * bucketMs,
       count: 0,
-      maxMagnitude: null,
+      maxMagnitudes: [],
     }),
   );
 
@@ -47,9 +47,12 @@ export function buildTimelineBuckets(
     const bucket = buckets[index];
     bucket.count += 1;
     if (event.magnitude !== null) {
-      bucket.maxMagnitude = Math.max(
-        bucket.maxMagnitude ?? Number.NEGATIVE_INFINITY,
-        event.magnitude,
+      const type = event.magnitudeType?.trim() || 'Unspecified';
+      const existing = bucket.maxMagnitudes.find((item) => item.type === type);
+      if (existing) existing.value = Math.max(existing.value, event.magnitude);
+      else bucket.maxMagnitudes.push({ type, value: event.magnitude });
+      bucket.maxMagnitudes.sort((left, right) =>
+        left.type.localeCompare(right.type),
       );
     }
   }

@@ -91,7 +91,7 @@ export function FilterControls({
               minMagnitude: firstSliderValue(value, 0),
             })
           }
-          aria-label="Minimum earthquake magnitude"
+          thumbAriaLabel="Minimum earthquake magnitude"
         />
       </label>
 
@@ -110,7 +110,7 @@ export function FilterControls({
           onValueChange={(value) =>
             onChange({ ...filters, maxDepth: firstSliderValue(value, 300) })
           }
-          aria-label="Maximum earthquake depth"
+          thumbAriaLabel="Maximum earthquake depth"
         />
       </label>
     </div>
@@ -198,7 +198,7 @@ export function LayerControls({
             onValueChange={(value) =>
               onFaultOpacityChange(firstSliderValue(value, 0.82))
             }
-            aria-label="Fault layer opacity"
+            thumbAriaLabel="Fault layer opacity"
           />
         </label>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">

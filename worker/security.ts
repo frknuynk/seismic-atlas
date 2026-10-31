@@ -18,7 +18,7 @@ const BASE_SECURITY_HEADERS = {
     "object-src 'none'",
     "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
-    "worker-src 'self' blob:",
+    "worker-src 'self'",
   ].join('; '),
   'Permissions-Policy': [
     'camera=()',
@@ -38,6 +38,17 @@ export function withSecurityHeaders(request: Request, response: Response) {
 
   for (const [name, value] of Object.entries(BASE_SECURITY_HEADERS)) {
     headers.set(name, value);
+  }
+
+  const hostname = new URL(request.url).hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    headers.set(
+      'Content-Security-Policy',
+      BASE_SECURITY_HEADERS['Content-Security-Policy'].replace(
+        "script-src 'self' 'unsafe-inline'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      ),
+    );
   }
 
   if (new URL(request.url).protocol === 'https:') {

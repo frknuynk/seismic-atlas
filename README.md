@@ -21,8 +21,8 @@
 
 ## What it does
 
-| Explore | Investigate | Analyze | Trust |
-| --- | --- | --- | --- |
+| Explore                                            | Investigate                                                                 | Analyze                                                                                  | Trust                                                                               |
+| -------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | View recent AFAD events on a terrain-aware 3D map. | Inspect source values, revisions, and the nearest GEM-mapped fault segment. | Study distributions and reproducible proximity-based sequence candidates in Catalog Lab. | See source freshness, scheduler health, completeness, and protective circuit state. |
 
 - Synchronizes the official AFAD Event Web Service every five minutes.
@@ -52,10 +52,10 @@ hazard, or future seismicity.
 
 ### Mobile data trust and provenance
 
-| Data status | Event detail |
-| :---: | :---: |
+|                                                                   Data status                                                                   |                                                                   Event detail                                                                   |
+| :---------------------------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------: |
 | <img src="docs/images/seismic-atlas-data-status-mobile.jpg" alt="Mobile AFAD data status showing freshness and scheduler health" width="360" /> | <img src="docs/images/seismic-atlas-event-detail-mobile.jpg" alt="Mobile event detail showing AFAD provenance and source history" width="360" /> |
-| Freshness, cron watchdog, attribution, and free-tier guardrails. | Source solution, nearest mapped fault, AFAD event link, and revision history. |
+|                                        Freshness, cron watchdog, attribution, and free-tier guardrails.                                         |                                  Source solution, nearest mapped fault, AFAD event link, and revision history.                                   |
 
 ## How it works
 
@@ -143,10 +143,10 @@ A successful result includes:
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The first map load should
+Open the URL printed by Vinext (normally [http://localhost:5173](http://localhost:5173)). The first map load should
 show recent markers, an event count, and a synchronized timestamp. The service
 health endpoint is available at
-[`/api/v1/health`](http://localhost:3000/api/v1/health); catalog endpoints are
+[`/api/v1/health`](http://localhost:5173/api/v1/health); catalog endpoints are
 intentionally reserved for the first-party browser application.
 
 ### 5. Simulate the scheduled path
@@ -173,14 +173,18 @@ npm run check
 
 1. TypeScript type checking
 2. Oxlint
-3. The complete Vitest suite
-4. A production Vinext build
+3. Node, real workerd/D1, and Chromium Browser Mode Vitest projects
+4. A production Vinext build and bundle-budget check
+5. Deterministic Chromium Playwright E2E with Axe
 
 Latest verified local baseline:
 
 ```text
-28 test files passed
-121 tests passed
+33 test files passed
+138 tests passed
+4 Playwright scenarios passed
+85.28% line / 69.20% branch coverage
+0 production dependency advisories
 Typecheck clean
 Lint clean
 Production build successful
@@ -188,18 +192,38 @@ Production build successful
 
 Individual commands:
 
-| Goal | Command |
-| --- | --- |
-| Development server | `npm run dev` |
-| Type checking | `npm run typecheck` |
-| Lint | `npm run lint` |
-| Unit/integration tests | `npm test` |
-| Watch tests | `npm run test:watch` |
-| Production build | `npm run build` |
-| Full quality gate | `npm run check` |
-| AFAD seven-day sync | `npm run sync:afad:local -- --minutes=10080` |
-| Local scheduled sync | `npm run sync:afad:scheduled:local` |
-| Rebuild fault tiles | `npm run data:build:faults` |
+| Goal                    | Command                                      |
+| ----------------------- | -------------------------------------------- |
+| Development server      | `npm run dev`                                |
+| Type checking           | `npm run typecheck`                          |
+| Lint                    | `npm run lint`                               |
+| Unit/integration tests  | `npm test`                                   |
+| Node tests only         | `npm run test:node`                          |
+| Real workerd + D1 tests | `npm run test:worker`                        |
+| Browser component tests | `npm run test:browser`                       |
+| Playwright E2E          | `npm run test:e2e`                           |
+| Full source coverage    | `npm run test:coverage`                      |
+| Watch tests             | `npm run test:watch`                         |
+| Production build        | `npm run build`                              |
+| Full quality gate       | `npm run check`                              |
+| AFAD seven-day sync     | `npm run sync:afad:local -- --minutes=10080` |
+| Local scheduled sync    | `npm run sync:afad:scheduled:local`          |
+| Rebuild fault tiles     | `npm run data:build:faults`                  |
+
+### Persona QA
+
+Four project-specific agent skills turn release review into repeatable evidence:
+
+| Perspective                                 | Skill                                |
+| ------------------------------------------- | ------------------------------------ |
+| Product value and release acceptance        | `skills/seismic-atlas-owner-qa`      |
+| Non-specialist usability and accessibility  | `skills/seismic-atlas-enthusiast-qa` |
+| Scientific meaning and provenance           | `skills/seismic-atlas-geologist-qa`  |
+| Runtime, security, resilience, and coverage | `skills/seismic-atlas-engineer-qa`   |
+
+Their research basis and latest combined results are documented in
+[`docs/quality/persona-research.md`](docs/quality/persona-research.md) and
+[`docs/quality/coverage-report.md`](docs/quality/coverage-report.md).
 
 ## Configuration
 
@@ -210,10 +234,10 @@ need to override local settings:
 cp .env.example .env.local
 ```
 
-| Variable | Required locally | Purpose |
-| --- | :---: | --- |
-| `NEXT_PUBLIC_BASEMAP_STYLE_URL` | No | Overrides the MapLibre style URL. |
-| `AFAD_SYNC_TOKEN` | No | Protects manual synchronization outside localhost. |
+| Variable                        | Required locally | Purpose                                            |
+| ------------------------------- | :--------------: | -------------------------------------------------- |
+| `NEXT_PUBLIC_BASEMAP_STYLE_URL` |        No        | Overrides the MapLibre style URL.                  |
+| `AFAD_SYNC_TOKEN`               |        No        | Protects manual synchronization outside localhost. |
 
 Production additionally requires a real D1 database identifier, the `DB`
 binding, the `MANUAL_SYNC_RATE_LIMIT` binding, `AFAD_SYNC_TOKEN`, and the
@@ -222,15 +246,15 @@ and secrets are intentionally not committed.
 
 ## Architecture
 
-| Layer | Technology | Responsibility |
-| --- | --- | --- |
-| Interface | React 19, Vinext, Tailwind CSS | Map-first desktop and mobile workspace |
-| Mapping | MapLibre GL JS, PMTiles | Terrain, earthquake markers, and fault vectors |
-| Analysis | Web Worker, Recharts | Catalog metrics and sequence exploration |
-| Runtime | Cloudflare Workers, Hono | App delivery, protected routes, scheduled ingestion |
-| Storage | Cloudflare D1, Drizzle schema | Events, revisions, health, leases, and run diagnostics |
-| Contracts | Zod, TypeScript | Shared runtime validation and types |
-| Quality | Vitest, Oxlint, GitHub Actions | Automated regression and production-build checks |
+| Layer     | Technology                     | Responsibility                                         |
+| --------- | ------------------------------ | ------------------------------------------------------ |
+| Interface | React 19, Vinext, Tailwind CSS | Map-first desktop and mobile workspace                 |
+| Mapping   | MapLibre GL JS, PMTiles        | Terrain, earthquake markers, and fault vectors         |
+| Analysis  | Web Worker, Recharts           | Catalog metrics and sequence exploration               |
+| Runtime   | Cloudflare Workers, Hono       | App delivery, protected routes, scheduled ingestion    |
+| Storage   | Cloudflare D1, Drizzle schema  | Events, revisions, health, leases, and run diagnostics |
+| Contracts | Zod, TypeScript                | Shared runtime validation and types                    |
+| Quality   | Vitest, Oxlint, GitHub Actions | Automated regression and production-build checks       |
 
 Key directories:
 

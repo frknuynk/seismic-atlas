@@ -16,8 +16,15 @@ function candidate(id: string, eventIds: string[]): SeismicSequenceCandidate {
     durationHours: 1,
     centroid: { latitude: 39, longitude: 35 },
     spatialRadiusKm: 5,
-    maximumMagnitude: 2,
-    largestEventId: eventIds[0]!,
+    magnitudeGroups: [
+      {
+        type: 'ML',
+        count: eventIds.length,
+        maximum: 2,
+        largestEventId: eventIds[0]!,
+      },
+    ],
+    representativeEventId: eventIds[0]!,
     representativePlace: 'Türkiye',
   };
 }

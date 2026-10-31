@@ -73,7 +73,9 @@ export function EventDetailSheet({
             )}
           </div>
           <SheetTitle className="text-xl">
-            {event?.place ?? 'Loading earthquake…'}
+            {loading && !event
+              ? 'Loading earthquake…'
+              : event?.place ?? 'Location not reported by AFAD'}
           </SheetTitle>
           <SheetDescription>
             {event
@@ -230,10 +232,10 @@ export function EventDetailSheet({
                 <History className="size-4 text-primary" aria-hidden="true" />
                 Source history
                 <Badge variant="secondary" className="ml-auto">
-                  {detail?.revisionCount ?? event.revisionCount} revision
+                  {detail?.revisionCount ?? event.revisionCount} recorded{' '}
                   {(detail?.revisionCount ?? event.revisionCount) === 1
-                    ? ''
-                    : 's'}
+                    ? 'solution'
+                    : 'solutions'}
                 </Badge>
               </h3>
               <div className="space-y-2">
@@ -243,7 +245,11 @@ export function EventDetailSheet({
                     className="rounded-lg border bg-card/55 p-3"
                   >
                     <div className="flex items-center justify-between text-sm font-medium">
-                      <span>Revision {revision.revisionNo}</span>
+                      <span>
+                        {revision.revisionNo === 1
+                          ? 'Initial observed solution'
+                          : `Revision ${revision.revisionNo - 1}`}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         {dateTime(revision.observedAt)} UTC
                       </span>

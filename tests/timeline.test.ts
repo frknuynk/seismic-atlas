@@ -6,8 +6,12 @@ import {
 } from '@/lib/timeline';
 import type { CatalogEvent } from '@/shared/schemas';
 
-function event(originTime: string, magnitude: number | null) {
-  return { originTime, magnitude } as CatalogEvent;
+function event(
+  originTime: string,
+  magnitude: number | null,
+  magnitudeType = 'ML',
+) {
+  return { originTime, magnitude, magnitudeType } as CatalogEvent;
 }
 
 describe('earthquake timeline', () => {
@@ -17,12 +21,12 @@ describe('earthquake timeline', () => {
     expect(timelineBucketHours(168)).toBe(6);
   });
 
-  it('groups events and retains the maximum magnitude', () => {
+  it('groups events and retains maxima by magnitude type', () => {
     const now = Date.parse('2026-09-06T12:00:00.000Z');
     const buckets = buildTimelineBuckets(
       [
         event('2026-09-06T10:10:00.000Z', 2.1),
-        event('2026-09-06T10:40:00.000Z', 3.4),
+        event('2026-09-06T10:40:00.000Z', 3.4, 'MW'),
         event('2026-09-06T11:20:00.000Z', 1.8),
       ],
       24,
@@ -30,8 +34,17 @@ describe('earthquake timeline', () => {
     );
 
     expect(buckets).toHaveLength(24);
-    expect(buckets.at(-2)).toMatchObject({ count: 2, maxMagnitude: 3.4 });
-    expect(buckets.at(-1)).toMatchObject({ count: 1, maxMagnitude: 1.8 });
+    expect(buckets.at(-2)).toMatchObject({
+      count: 2,
+      maxMagnitudes: [
+        { type: 'ML', value: 2.1 },
+        { type: 'MW', value: 3.4 },
+      ],
+    });
+    expect(buckets.at(-1)).toMatchObject({
+      count: 1,
+      maxMagnitudes: [{ type: 'ML', value: 1.8 }],
+    });
   });
 
   it('uses a half-open interval when filtering events', () => {

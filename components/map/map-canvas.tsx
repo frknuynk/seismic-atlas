@@ -3,6 +3,7 @@
 import { LocateFixed, Mountain, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { Button } from '@/components/ui/button';
 import { Toggle } from '@/components/ui/toggle';
 import {
@@ -229,9 +230,10 @@ export function MapCanvas({
     };
 
     void Promise.all([import('maplibre-gl'), import('pmtiles')])
-      .then(([{ default: maplibregl }, { PMTiles, Protocol }]) => {
+      .then(([maplibregl, { PMTiles, Protocol }]) => {
         if (cancelled || !containerRef.current) return;
 
+        maplibregl.setWorkerUrl(maplibreWorkerUrl);
         const protocol = new Protocol({ metadata: true });
         maplibregl.addProtocol('pmtiles', protocol.tile);
         removePmtilesProtocol = () => maplibregl.removeProtocol('pmtiles');
@@ -287,9 +289,9 @@ export function MapCanvas({
           'bottom-left',
         );
 
-        map.on('styleimagemissing', (event) => {
-          if (event.id === 'circle-11' && !map.hasImage(event.id)) {
-            map.addImage(event.id, createCircleImage(22), { pixelRatio: 2 });
+        map.setMissingStyleImageResolver((id) => {
+          if (id === 'circle-11' && !map.hasImage(id)) {
+            map.addImage(id, createCircleImage(22), { pixelRatio: 2 });
           }
         });
 
@@ -829,7 +831,7 @@ export function MapCanvas({
     const map = mapRef.current;
     const source = map?.getSource(EVENTS_SOURCE);
     if (source)
-      (source as GeoJSONSource).setData(
+      void (source as GeoJSONSource).setData(
         eventGeoJson(events, sequenceMembership, sequencePlayback),
       );
   }, [events, sequenceMembership, sequencePlayback]);
@@ -1147,7 +1149,7 @@ export function MapCanvas({
             </p>
             <p className="mt-1 text-xs text-slate-400">
               {mapState === 'unavailable'
-                ? 'Terrain unavailable · controls remain active'
+                ? 'Interactive map unavailable on this device · catalog controls remain active'
                 : 'Preparing terrain and seismic layers'}
             </p>
           </div>

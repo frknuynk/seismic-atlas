@@ -1,0 +1,4 @@
+interface:
+  display_name: "Seismic Atlas Geologist QA"
+  short_description: "Audit scientific meaning, provenance, and caveats"
+  default_prompt: "Use $seismic-atlas-geologist-qa to audit Seismic Atlas for scientific integrity and geoscience usability."

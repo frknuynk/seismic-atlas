@@ -10,6 +10,9 @@
 
 # testing
 /coverage
+/.vitest/
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -47,3 +50,10 @@ next-env.d.ts
 # keep only the public root README in version control
 *.md
 !/README.md
+!/skills/
+!/skills/**/
+!/skills/**/SKILL.md
+!/skills/**/references/
+!/skills/**/references/*.md
+!/docs/quality/
+!/docs/quality/*.md

@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getD1 } from '@/db';
 import { AfadSyncRequestSchema } from '@/shared/schemas';
 import { runAfadSync } from '@/worker/ingestion/afad';
-import { pruneRecentAfadCatalog } from '@/worker/catalog-retention';
+import { runAfadSyncThenRetention } from '@/worker/scheduled';
 import {
   apiErrorResponse,
   logApiError,
@@ -73,17 +73,21 @@ export async function POST(request: Request) {
   });
 
   try {
-    const result = await runAfadSync(
-      getD1(),
-      parsed.data.mode === 'backfill'
-        ? {
-            backfillWindow: {
-              start: new Date(parsed.data.start),
-              end: new Date(parsed.data.end),
-            },
-          }
-        : { windowMinutes: parsed.data.windowMinutes },
-    );
+    const db = getD1();
+    const { result, retention } = await runAfadSyncThenRetention(db, {
+      runSync: () =>
+        runAfadSync(
+          db,
+          parsed.data.mode === 'backfill'
+            ? {
+                backfillWindow: {
+                  start: new Date(parsed.data.start),
+                  end: new Date(parsed.data.end),
+                },
+              }
+            : { windowMinutes: parsed.data.windowMinutes },
+        ),
+    });
     logEvent(
       result.status === 'succeeded' ? 'info' : 'warn',
       'sync.afad.completed',
@@ -95,10 +99,6 @@ export async function POST(request: Request) {
         reason: 'reason' in result ? result.reason : null,
       },
     );
-    const retention =
-      result.status === 'succeeded'
-        ? await pruneRecentAfadCatalog(getD1())
-        : null;
     return Response.json({ source: 'AFAD', ...result, retention });
   } catch (error) {
     logApiError(request, 'sync.afad.failed', error, {

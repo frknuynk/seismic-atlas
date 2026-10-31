@@ -210,11 +210,11 @@ export function SequenceInspector({
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2 border-t border-primary/15 pt-3 text-xs">
             <Metric
-              label="Maximum"
+              label="Type maxima"
               value={
-                candidate.maximumMagnitude === null
-                  ? '—'
-                  : `M ${candidate.maximumMagnitude.toFixed(1)}`
+                candidate.magnitudeGroups
+                  .map((group) => `${group.type} ${group.maximum.toFixed(1)}`)
+                  .join(' · ') || '—'
               }
             />
             <Metric

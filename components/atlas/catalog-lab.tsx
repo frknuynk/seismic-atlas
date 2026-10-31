@@ -96,7 +96,7 @@ export function CatalogLab({
   return (
     <section
       aria-labelledby="catalog-lab-title"
-      className="absolute inset-x-3 bottom-3 z-10 flex h-[72vh] min-h-72 flex-col overflow-hidden rounded-xl border border-primary/25 bg-background/95 shadow-[0_24px_80px_rgb(0_0_0/48%)] backdrop-blur-xl md:inset-x-4 md:h-[46vh] md:min-h-80"
+      className="flex h-[72vh] min-h-72 shrink-0 flex-col overflow-hidden border-t border-primary/25 bg-background/95 shadow-[0_-16px_50px_rgb(0_0_0/30%)] backdrop-blur-xl md:h-[46vh] md:min-h-80"
     >
       <div className="flex shrink-0 flex-col gap-2 border-b border-primary/15 bg-primary/[0.04] px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3 md:px-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -208,12 +208,8 @@ export function CatalogLab({
                 value={analysis.eventCount.toLocaleString()}
               />
               <LabMetric
-                label="Maximum"
-                value={
-                  analysis.maximumMagnitude === null
-                    ? '—'
-                    : `M ${analysis.maximumMagnitude.toFixed(1)}`
-                }
+                label="Magnitude types"
+                value={analysis.magnitudeGroups.length.toLocaleString()}
               />
               <LabMetric
                 label="Magnitude coverage"
@@ -231,12 +227,13 @@ export function CatalogLab({
                 aria-hidden="true"
               />
               <span>Magnitude types:</span>
-              {analysis.magnitudeTypes.length === 0 ? (
+              {analysis.magnitudeGroups.length === 0 ? (
                 <span>none reported</span>
               ) : (
-                analysis.magnitudeTypes.map((item) => (
+                analysis.magnitudeGroups.map((item) => (
                   <Badge key={item.type} variant="secondary">
-                    {item.type} · {item.count.toLocaleString()}
+                    {item.type} · {item.count.toLocaleString()} · max{' '}
+                    {item.maximum === null ? '—' : item.maximum.toFixed(1)}
                   </Badge>
                 ))
               )}
@@ -317,12 +314,10 @@ export function CatalogLab({
                         </div>
                         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                           <SequenceMetric
-                            label="Maximum"
-                            value={
-                              candidate.maximumMagnitude === null
-                                ? '—'
-                                : `M ${candidate.maximumMagnitude.toFixed(1)}`
-                            }
+                            label="Type maxima"
+                            value={magnitudeGroupLabel(
+                              candidate.magnitudeGroups,
+                            )}
                           />
                           <SequenceMetric
                             label="Span"
@@ -377,37 +372,45 @@ export function CatalogLab({
                   </ChartContainer>
                 </LabChart>
 
-                <LabChart title="Magnitude distribution" detail="0.5-unit bins">
-                  <ChartContainer
-                    config={countChartConfig}
-                    className="h-36 w-full aspect-auto"
-                  >
-                    <BarChart
-                      accessibilityLayer
-                      data={analysis.magnitudeHistogram}
+                {analysis.magnitudeGroups
+                  .filter((group) => group.histogram.length > 0)
+                  .map((group) => (
+                    <LabChart
+                      key={`${group.type}-histogram`}
+                      title={`${group.type} magnitude distribution`}
+                      detail={`${group.count} events · 0.5-unit bins`}
                     >
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="label"
-                        tickLine={false}
-                        axisLine={false}
-                        minTickGap={18}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        width={28}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar
-                        dataKey="count"
-                        fill="var(--color-count)"
-                        radius={[3, 3, 0, 0]}
-                      />
-                    </BarChart>
-                  </ChartContainer>
-                </LabChart>
+                      <ChartContainer
+                        config={countChartConfig}
+                        className="h-36 w-full aspect-auto"
+                      >
+                        <BarChart accessibilityLayer data={group.histogram}>
+                          <CartesianGrid
+                            vertical={false}
+                            strokeDasharray="3 3"
+                          />
+                          <XAxis
+                            dataKey="label"
+                            tickLine={false}
+                            axisLine={false}
+                            minTickGap={18}
+                          />
+                          <YAxis
+                            allowDecimals={false}
+                            width={28}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar
+                            dataKey="count"
+                            fill="var(--color-count)"
+                            radius={[3, 3, 0, 0]}
+                          />
+                        </BarChart>
+                      </ChartContainer>
+                    </LabChart>
+                  ))}
 
                 <LabChart title="Depth distribution" detail="Kilometres">
                   <ChartContainer
@@ -437,42 +440,50 @@ export function CatalogLab({
                   </ChartContainer>
                 </LabChart>
 
-                <LabChart
-                  title="Frequency–magnitude"
-                  detail="Cumulative · descriptive"
-                >
-                  <ChartContainer
-                    config={cumulativeChartConfig}
-                    className="h-36 w-full aspect-auto"
-                  >
-                    <LineChart
-                      accessibilityLayer
-                      data={analysis.frequencyMagnitude}
+                {analysis.magnitudeGroups
+                  .filter((group) => group.frequencyMagnitude.length > 0)
+                  .map((group) => (
+                    <LabChart
+                      key={`${group.type}-frequency`}
+                      title={`${group.type} frequency–magnitude`}
+                      detail={`${group.count} events · cumulative`}
                     >
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="magnitude"
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(value) => Number(value).toFixed(1)}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        width={32}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Line
-                        dataKey="count"
-                        type="stepAfter"
-                        stroke="var(--color-count)"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ChartContainer>
-                </LabChart>
+                      <ChartContainer
+                        config={cumulativeChartConfig}
+                        className="h-36 w-full aspect-auto"
+                      >
+                        <LineChart
+                          accessibilityLayer
+                          data={group.frequencyMagnitude}
+                        >
+                          <CartesianGrid
+                            vertical={false}
+                            strokeDasharray="3 3"
+                          />
+                          <XAxis
+                            dataKey="magnitude"
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => Number(value).toFixed(1)}
+                          />
+                          <YAxis
+                            allowDecimals={false}
+                            width={32}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Line
+                            dataKey="count"
+                            type="stepAfter"
+                            stroke="var(--color-count)"
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ChartContainer>
+                    </LabChart>
+                  ))}
               </div>
             )}
 
@@ -502,6 +513,19 @@ function formatDuration(hours: number) {
   if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
   if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`;
   return `${(hours / 24).toFixed(1)}d`;
+}
+
+function magnitudeGroupLabel(
+  groups: Array<{ type: string; maximum: number | null }>,
+) {
+  if (groups.length === 0) return '—';
+  return groups
+    .map((group) =>
+      group.maximum === null
+        ? `${group.type} —`
+        : `${group.type} ${group.maximum.toFixed(1)}`,
+    )
+    .join(' · ');
 }
 
 function SequenceMetric({ label, value }: { label: string; value: string }) {

@@ -1,14 +1,32 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('.', import.meta.url)),
-    },
-  },
   test: {
-    environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    projects: [
+      './vitest.node.config.ts',
+      './vitest.worker.config.ts',
+      './vitest.browser.config.ts',
+    ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'html'],
+      reportsDirectory: 'coverage',
+      include: [
+        'app/api/**/*.{ts,tsx}',
+        'components/atlas/**/*.{ts,tsx}',
+        'hooks/**/*.{ts,tsx}',
+        'lib/**/*.ts',
+        'worker/**/*.ts',
+        'db/index.ts',
+      ],
+      exclude: ['**/*.d.ts', 'db/schema.ts'],
+      reportOnFailure: true,
+      thresholds: {
+        lines: 70,
+        statements: 70,
+        functions: 65,
+        branches: 60,
+      },
+    },
   },
 });

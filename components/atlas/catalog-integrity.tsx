@@ -42,6 +42,8 @@ export function CatalogIntegrity({
     rejected: 0,
     duplicatesDropped: 0,
   };
+  const attentionChecks =
+    quality?.checks.filter((check) => check.status !== 'pass') ?? [];
 
   return (
     <section aria-labelledby={titleId}>
@@ -116,17 +118,46 @@ export function CatalogIntegrity({
                 {quality.coveragePercent.depth.toFixed(1)}%
               </dd>
             </div>
+            <div className="rounded border bg-background/35 p-2">
+              <dt className="text-muted-foreground">Magnitude type coverage</dt>
+              <dd className="mt-0.5 font-mono font-medium">
+                {quality.coveragePercent.magnitudeType.toFixed(1)}%
+              </dd>
+            </div>
+            <div className="rounded border bg-background/35 p-2">
+              <dt className="text-muted-foreground">Place coverage</dt>
+              <dd className="mt-0.5 font-mono font-medium">
+                {quality.coveragePercent.place.toFixed(1)}%
+              </dd>
+            </div>
           </dl>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {quality.counts.revisedEvents.toLocaleString()} revised events ·{' '}
-            {quality.checks.filter((check) => check.status !== 'pass').length}{' '}
-            checks need attention
+            {attentionChecks.length} checks need attention
           </p>
           <p className="text-xs leading-5 text-muted-foreground">
             Last 7 days: {ingestionLast7Days.rejected.toLocaleString()} rejected
             · {ingestionLast7Days.duplicatesDropped.toLocaleString()} duplicates
             dropped
           </p>
+          {attentionChecks.length > 0 && (
+            <details className="mt-2 rounded border border-amber-300/20 bg-amber-300/[0.05] p-2 text-xs">
+              <summary className="cursor-pointer font-medium text-amber-100">
+                Review affected quality checks
+              </summary>
+              <ul className="mt-2 space-y-2 text-muted-foreground">
+                {attentionChecks.map((check) => (
+                  <li key={check.code}>
+                    <span className="font-mono text-foreground">
+                      {check.code}
+                    </span>{' '}
+                    · {check.affected.toLocaleString()} affected ·{' '}
+                    {check.message}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       ) : (
         <p className="rounded-md border border-dashed p-3 text-xs leading-5 text-muted-foreground">

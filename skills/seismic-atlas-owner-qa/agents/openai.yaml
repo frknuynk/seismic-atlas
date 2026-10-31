@@ -1,0 +1,4 @@
+interface:
+  display_name: "Seismic Atlas Owner QA"
+  short_description: "Validate product value, trust, and release readiness"
+  default_prompt: "Use $seismic-atlas-owner-qa to run an evidence-based owner acceptance review of the current Seismic Atlas build."

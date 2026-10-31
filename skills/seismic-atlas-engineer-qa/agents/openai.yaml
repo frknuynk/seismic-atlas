@@ -1,0 +1,4 @@
+interface:
+  display_name: "Seismic Atlas Engineer QA"
+  short_description: "Review architecture, security, resilience, and tests"
+  default_prompt: "Use $seismic-atlas-engineer-qa to perform a senior full-stack release audit with reproducible evidence."

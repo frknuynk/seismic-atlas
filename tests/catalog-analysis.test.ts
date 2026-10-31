@@ -47,7 +47,7 @@ describe('catalog analysis', () => {
     ).not.toBe(catalogAnalysisFingerprint(original));
   });
 
-  it('computes descriptive coverage, histograms, and cumulative FMD', () => {
+  it('keeps small magnitude groups separate without unsupported plots', () => {
     const analysis = analyzeCatalog([
       event(1, 1.2, 4),
       event(2, 1.8, 8),
@@ -57,7 +57,6 @@ describe('catalog analysis', () => {
 
     expect(analysis).toMatchObject({
       eventCount: 4,
-      maximumMagnitude: 2.1,
       magnitudeCoveragePercent: 75,
       depthCoveragePercent: 75,
       sequences: {
@@ -70,20 +69,34 @@ describe('catalog analysis', () => {
     expect(
       analysis.timeHistogram.reduce((sum, bin) => sum + bin.count, 0),
     ).toBe(4);
-    expect(
-      analysis.magnitudeHistogram.reduce((sum, bin) => sum + bin.count, 0),
-    ).toBe(3);
+    expect(analysis.magnitudeGroups).toEqual([
+      {
+        type: 'ML',
+        count: 4,
+        maximum: 2.1,
+        histogram: [],
+        frequencyMagnitude: [],
+      },
+    ]);
     expect(analysis.depthHistogram.map((bin) => bin.count)).toEqual([
       1, 1, 1, 0, 0, 0,
     ]);
-    expect(analysis.frequencyMagnitude[0]).toEqual({
-      magnitude: 1.2,
-      count: 3,
-    });
-    expect(analysis.frequencyMagnitude.at(-1)).toEqual({
-      magnitude: 2.1,
-      count: 1,
-    });
+  });
+
+  it('creates histograms and frequency curves only within eligible types', () => {
+    const events = Array.from({ length: 60 }, (_, index) =>
+      event(index, 1 + index / 20, 5, index < 50 ? 'ML' : 'MW'),
+    );
+    const analysis = analyzeCatalog(events);
+    const ml = analysis.magnitudeGroups.find((group) => group.type === 'ML')!;
+    const mw = analysis.magnitudeGroups.find((group) => group.type === 'MW')!;
+
+    expect(ml.count).toBe(50);
+    expect(ml.histogram.reduce((sum, bin) => sum + bin.count, 0)).toBe(50);
+    expect(ml.frequencyMagnitude.length).toBeGreaterThan(0);
+    expect(mw.count).toBe(10);
+    expect(mw.histogram.reduce((sum, bin) => sum + bin.count, 0)).toBe(10);
+    expect(mw.frequencyMagnitude).toEqual([]);
   });
 
   it('returns an explicit empty analysis without invalid numbers', () => {
@@ -91,10 +104,9 @@ describe('catalog analysis', () => {
       eventCount: 0,
       firstEventTime: null,
       lastEventTime: null,
-      maximumMagnitude: null,
       magnitudeCoveragePercent: 0,
       depthCoveragePercent: 0,
-      magnitudeTypes: [],
+      magnitudeGroups: [],
       sequences: { candidateCount: 0, clusteredEventCount: 0 },
       quality: { status: 'empty' },
     });

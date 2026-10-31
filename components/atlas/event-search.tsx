@@ -116,10 +116,10 @@ export function EventSearch({ events, onSelectEvent }: EventSearchProps) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">
-                      {event.place ?? 'Unknown location'}
+                      {event.place ?? 'Location not reported by AFAD'}
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                      {eventTime(event.originTime)} · {event.source}{' '}
+                      {eventTime(event.originTime)} TRT · {event.source}{' '}
                       {event.sourceEventId}
                     </span>
                   </span>
