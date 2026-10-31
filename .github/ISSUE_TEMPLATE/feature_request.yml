@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a focused product, data, or engineering improvement
+title: '[Feature]: '
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user or maintainer problem exists today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the observable result rather than a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Explore and map
+        - Catalog Lab and scientific analysis
+        - AFAD ingestion and data quality
+        - Accessibility and responsive UI
+        - Operations, security, or testing
+        - Documentation
+    validations:
+      required: true
+  - type: checkboxes
+    id: guardrails
+    attributes:
+      label: Product guardrails
+      options:
+        - label: The request does not require earthquake prediction or early-warning claims.
+          required: true
+        - label: I considered source attribution and data licensing implications.
+          required: true

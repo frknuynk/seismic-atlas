@@ -329,6 +329,17 @@ or hazard decisions.
 The interface preserves the required in-map attribution for OpenFreeMap,
 OpenMapTiles, OpenStreetMap, Mapterhorn, and GEM data.
 
+## License
+
+Seismic Atlas application source code is available under the [MIT License](LICENSE).
+That license does not relicense third-party data, map tiles, fonts, or other
+attributed assets. AFAD observations remain subject to the source provider's
+terms, and the checked-in GEM active-fault derivative remains licensed under
+CC BY-SA 4.0 with the attribution and processing details documented above.
+
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) before proposing a change and
+[SECURITY.md](.github/SECURITY.md) for private vulnerability reporting.
+
 ## Production readiness
 
 Before a public deployment:

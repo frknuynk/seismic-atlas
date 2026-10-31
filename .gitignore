@@ -50,6 +50,7 @@ next-env.d.ts
 # keep only the public root README in version control
 *.md
 !/README.md
+!/.github/**/*.md
 !/skills/
 !/skills/**/
 !/skills/**/SKILL.md

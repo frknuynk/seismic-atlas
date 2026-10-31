@@ -2,6 +2,7 @@
   "name": "seismic-atlas",
   "version": "0.8.0-alpha.0",
   "private": true,
+  "license": "MIT",
   "engines": {
     "node": ">=22.13.0"
   },
