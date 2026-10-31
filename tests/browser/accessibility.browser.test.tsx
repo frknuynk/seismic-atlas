@@ -22,12 +22,13 @@ test('places the accessible name on the focusable slider thumb', async () => {
 
 test('renders mixed magnitude timeline buckets with 44px targets', async () => {
   const now = Date.now();
+  const bucketEnd = Math.ceil(now / (60 * 60_000)) * 60 * 60_000;
   const events = [
     {
       id: 'AFAD:1',
       source: 'AFAD',
       sourceEventId: '1',
-      originTime: new Date(now - 2 * 60_000).toISOString(),
+      originTime: new Date(bucketEnd - 30 * 60_000).toISOString(),
       latitude: 39,
       longitude: 35,
       depthKm: 8,
@@ -40,7 +41,7 @@ test('renders mixed magnitude timeline buckets with 44px targets', async () => {
       id: 'AFAD:2',
       source: 'AFAD',
       sourceEventId: '2',
-      originTime: new Date(now - 60_000).toISOString(),
+      originTime: new Date(bucketEnd - 20 * 60_000).toISOString(),
       latitude: 39,
       longitude: 35,
       depthKm: 8,
