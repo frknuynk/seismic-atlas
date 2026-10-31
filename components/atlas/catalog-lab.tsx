@@ -4,15 +4,12 @@ import {
   Activity,
   AlertTriangle,
   ArrowLeft,
-  Braces,
   CheckCircle2,
-  Download,
-  FileJson2,
   FlaskConical,
   LoaderCircle,
   ScanSearch,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { SequenceInspector } from '@/components/atlas/sequence-inspector';
 import {
   Bar,
@@ -33,18 +30,6 @@ import {
 } from '@/components/ui/chart';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { CatalogAnalysisState } from '@/hooks/use-catalog-analysis';
-import type { CatalogAnalysis } from '@/lib/science/catalog-analysis';
-import {
-  analysisManifest,
-  catalogCsv,
-  catalogGeoJson,
-} from '@/lib/export/catalog-export';
-import { buildSequenceExport } from '@/lib/export/sequence-export';
-import type {
-  AtlasFilters,
-  MapBounds,
-  TimelineWindow,
-} from '@/shared/atlas-state';
 import type { CatalogEvent } from '@/shared/schemas';
 import type { CatalogCompleteness } from '@/lib/api/catalog-pages';
 import { sequenceColor } from '@/lib/map/sequence-style';
@@ -67,22 +52,8 @@ const dateTimeFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/Istanbul',
 });
 
-function downloadFile(filename: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 type CatalogLabProps = {
   events: CatalogEvent[];
-  filters: AtlasFilters;
-  bounds: MapBounds | null;
-  timelineWindow: TimelineWindow | null;
   completeness: CatalogCompleteness;
   state: CatalogAnalysisState;
   selectedSequenceId: string | null;
@@ -94,9 +65,6 @@ type CatalogLabProps = {
 
 export function CatalogLab({
   events,
-  filters,
-  bounds,
-  timelineWindow,
   completeness,
   state,
   selectedSequenceId,
@@ -109,27 +77,9 @@ export function CatalogLab({
   const pendingFocus = useRef<'inspector' | 'candidates' | null>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
   const firstCandidateRef = useRef<HTMLButtonElement>(null);
-  const exportSnapshot = useRef<{
-    analysis: CatalogAnalysis;
-    generatedAt: string;
-  } | null>(null);
-  const [exportFailure, setExportFailure] = useState<{
-    analysis: CatalogAnalysis;
-    candidateId: string;
-  } | null>(null);
   const selectedCandidate = analysis?.sequences.candidates.find(
     (candidate) => candidate.id === selectedSequenceId,
   );
-  const exportError =
-    exportFailure?.analysis === analysis &&
-    exportFailure.candidateId === selectedCandidate?.id;
-  const canExportSequence =
-    state.status === 'ready' &&
-    completeness.complete &&
-    completeness.total !== null &&
-    completeness.loaded === completeness.total &&
-    analysis?.eventCount === events.length &&
-    !!selectedCandidate;
   useEffect(() => {
     if (pendingFocus.current === 'inspector' && selectedCandidate) {
       pendingFocus.current = null;
@@ -143,44 +93,6 @@ export function CatalogLab({
     analysis?.firstEventTime && analysis.lastEventTime
       ? `${dateTimeFormat.format(new Date(analysis.firstEventTime))} – ${dateTimeFormat.format(new Date(analysis.lastEventTime))}`
       : 'No catalog coverage';
-  const exportContext = { filters, bounds, timelineWindow, completeness };
-  const fileStem = `seismic-atlas-afad-${new Date().toISOString().slice(0, 10)}`;
-
-  function downloadSelectedSequence(format: 'csv' | 'geojson' | 'methods') {
-    if (!canExportSequence || !analysis || !selectedCandidate) return;
-
-    try {
-      if (exportSnapshot.current?.analysis !== analysis) {
-        exportSnapshot.current = {
-          analysis,
-          generatedAt: new Date().toISOString(),
-        };
-      }
-      const result = buildSequenceExport(selectedCandidate, events, analysis, {
-        ...exportContext,
-        generatedAt: exportSnapshot.current.generatedAt,
-      });
-      if (format === 'csv') {
-        downloadFile(result.manifest.files.csv, result.csv, 'text/csv');
-      } else if (format === 'geojson') {
-        downloadFile(
-          result.manifest.files.geoJson,
-          JSON.stringify(result.geoJson, null, 2),
-          'application/geo+json',
-        );
-      } else {
-        downloadFile(
-          result.manifest.files.manifest,
-          JSON.stringify(result.manifest, null, 2),
-          'application/json',
-        );
-      }
-      setExportFailure(null);
-    } catch {
-      setExportFailure({ analysis, candidateId: selectedCandidate.id });
-    }
-  }
-
   return (
     <section
       aria-labelledby="catalog-lab-title"
@@ -217,149 +129,29 @@ export function CatalogLab({
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {selectedCandidate
-                ? `${selectedCandidate.eventCount} observed events · AFAD preferred solutions`
-                : `${range} · AFAD preferred solutions`}
+                ? `${selectedCandidate.eventCount} observed events · source-reported solutions`
+                : `${range} · source-reported solutions`}
             </p>
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
-          {selectedCandidate ? (
-            <>
-              <Button
-                ref={backButtonRef}
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-11 md:h-7"
-                onClick={() => {
-                  pendingFocus.current = 'candidates';
-                  onSelectSequence(selectedCandidate.id);
-                }}
-              >
-                <ArrowLeft className="size-3.5" aria-hidden="true" />
-                All candidates
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="size-11 px-0 xl:h-7 xl:w-auto xl:px-2.5"
-                aria-label="Download selected sequence as CSV"
-                disabled={!canExportSequence}
-                onClick={() => downloadSelectedSequence('csv')}
-              >
-                <Download className="size-3.5" aria-hidden="true" />
-                <span className="hidden xl:inline">CSV</span>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="size-11 px-0 xl:h-7 xl:w-auto xl:px-2.5"
-                aria-label="Download selected sequence as GeoJSON"
-                disabled={!canExportSequence}
-                onClick={() => downloadSelectedSequence('geojson')}
-              >
-                <FileJson2 className="size-3.5" aria-hidden="true" />
-                <span className="hidden xl:inline">GeoJSON</span>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="size-11 px-0 xl:h-7 xl:w-auto xl:px-2.5"
-                aria-label="Download selected sequence methods manifest"
-                disabled={!canExportSequence}
-                onClick={() => downloadSelectedSequence('methods')}
-              >
-                <Braces className="size-3.5" aria-hidden="true" />
-                <span className="hidden xl:inline">Methods</span>
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="size-11 px-0 lg:h-7 lg:w-auto lg:px-2.5"
-                aria-label="Download catalog as CSV"
-                disabled={
-                  !analysis ||
-                  events.length === 0 ||
-                  state.status === 'refreshing'
-                }
-                onClick={() =>
-                  downloadFile(
-                    `${fileStem}.csv`,
-                    catalogCsv(events),
-                    'text/csv',
-                  )
-                }
-              >
-                <Download className="size-3.5" aria-hidden="true" />
-                <span className="hidden lg:inline">CSV</span>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="size-11 px-0 lg:h-7 lg:w-auto lg:px-2.5"
-                aria-label="Download catalog as GeoJSON"
-                disabled={
-                  !analysis ||
-                  events.length === 0 ||
-                  state.status === 'refreshing'
-                }
-                onClick={() =>
-                  downloadFile(
-                    `${fileStem}.geojson`,
-                    JSON.stringify(catalogGeoJson(events), null, 2),
-                    'application/geo+json',
-                  )
-                }
-              >
-                <FileJson2 className="size-3.5" aria-hidden="true" />
-                <span className="hidden lg:inline">GeoJSON</span>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="size-11 px-0 lg:h-7 lg:w-auto lg:px-2.5"
-                aria-label="Download reproducible methods manifest"
-                disabled={!analysis || state.status === 'refreshing'}
-                onClick={() => {
-                  if (!analysis) return;
-                  downloadFile(
-                    `${fileStem}-methods.json`,
-                    JSON.stringify(
-                      analysisManifest(events, analysis, exportContext),
-                      null,
-                      2,
-                    ),
-                    'application/json',
-                  );
-                }}
-              >
-                <Braces className="size-3.5" aria-hidden="true" />
-                <span className="hidden lg:inline">Methods</span>
-              </Button>
-            </>
-          )}
-        </div>
+        {selectedCandidate && (
+          <Button
+            ref={backButtonRef}
+            type="button"
+            size="sm"
+            variant="outline"
+            className="ml-auto h-11 md:h-7"
+            onClick={() => {
+              pendingFocus.current = 'candidates';
+              onSelectSequence(selectedCandidate.id);
+            }}
+          >
+            <ArrowLeft className="size-3.5" aria-hidden="true" />
+            All candidates
+          </Button>
+        )}
       </div>
-
-      {exportError && (
-        <p
-          role="alert"
-          className="shrink-0 border-b border-destructive/25 px-3 py-2 text-xs text-destructive md:px-4"
-        >
-          This candidate no longer matches the verified catalog. Refresh the
-          selection before exporting.
-        </p>
-      )}
 
       {state.status === 'loading' && (
         <div className="grid min-h-0 flex-1 place-items-center">
@@ -382,8 +174,8 @@ export function CatalogLab({
               {completeness.reason === 'loading'
                 ? 'Loading and verifying every catalog page before analysis.'
                 : completeness.reason === 'ingestion_running'
-                  ? 'AFAD synchronization is currently writing a new catalog generation. Analysis will unlock after a stable refresh.'
-                  : `${completeness.loaded.toLocaleString()} of ${completeness.total?.toLocaleString() ?? 'an unknown number of'} matching events were loaded. Analysis and exports are disabled so partial data cannot be mistaken for a complete catalog.`}
+                  ? 'Source synchronization is currently writing a new catalog generation. Analysis will unlock after a stable refresh.'
+                  : `${completeness.loaded.toLocaleString()} of ${completeness.total?.toLocaleString() ?? 'an unknown number of'} matching events were loaded. Analysis is disabled so partial data cannot be mistaken for a complete catalog.`}
             </p>
           </div>
         </div>

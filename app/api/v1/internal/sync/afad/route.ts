@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { getD1 } from '@/db';
 import { AfadSyncRequestSchema } from '@/shared/schemas';
 import { runAfadSync } from '@/worker/ingestion/afad';
+import { pruneRecentAfadCatalog } from '@/worker/catalog-retention';
 import {
   apiErrorResponse,
   logApiError,
@@ -94,7 +95,11 @@ export async function POST(request: Request) {
         reason: 'reason' in result ? result.reason : null,
       },
     );
-    return Response.json({ source: 'AFAD', ...result });
+    const retention =
+      result.status === 'succeeded'
+        ? await pruneRecentAfadCatalog(getD1())
+        : null;
+    return Response.json({ source: 'AFAD', ...result, retention });
   } catch (error) {
     logApiError(request, 'sync.afad.failed', error, {
       durationMs: Math.max(0, Date.now() - startedAt),

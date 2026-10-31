@@ -153,3 +153,36 @@ export const ingestionRejections = sqliteTable(
   },
   (table) => [index('idx_ingestion_rejections_run').on(table.runId)],
 );
+
+export const canonicalEvents = sqliteTable('canonical_events', {
+  id: text('id').primaryKey(),
+  preferredSourceEventPk: text('preferred_source_event_pk').references(
+    () => sourceEvents.id,
+  ),
+  associationVersion: text('association_version').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const canonicalEventMembers = sqliteTable(
+  'canonical_event_members',
+  {
+    canonicalEventId: text('canonical_event_id')
+      .notNull()
+      .references(() => canonicalEvents.id),
+    sourceEventPk: text('source_event_pk')
+      .notNull()
+      .references(() => sourceEvents.id),
+    associationScore: real('association_score'),
+    associationMethod: text('association_method').notNull(),
+    associatedAt: integer('associated_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('uq_canonical_member').on(
+      table.canonicalEventId,
+      table.sourceEventPk,
+    ),
+    uniqueIndex('uq_source_event_canonical').on(table.sourceEventPk),
+    index('idx_canonical_members_event').on(table.canonicalEventId),
+  ],
+);

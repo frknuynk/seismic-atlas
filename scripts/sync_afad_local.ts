@@ -2,6 +2,9 @@ import { readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { runAfadSync } from '@/worker/ingestion/afad';
+import { runUsgsSync } from '@/worker/ingestion/usgs';
+import { runObservedScheduledSourceSync } from '@/worker/scheduled';
+import { pruneRecentAfadCatalog } from '@/worker/catalog-retention';
 
 type BoundStatement = {
   sql: string;
@@ -37,6 +40,22 @@ function windowMinutes() {
     throw new Error(
       `--minutes must be an integer from ${MIN_WINDOW_MINUTES} to ${MAX_WINDOW_MINUTES}.`,
     );
+  }
+  return value;
+}
+
+function trigger() {
+  const value = valueForArgument('trigger') ?? 'manual';
+  if (value !== 'manual' && value !== 'scheduled') {
+    throw new Error('--trigger must be either manual or scheduled.');
+  }
+  return value;
+}
+
+function source() {
+  const value = valueForArgument('source') ?? 'USGS';
+  if (value !== 'USGS' && value !== 'AFAD') {
+    throw new Error('--source must be either USGS or AFAD.');
   }
   return value;
 }
@@ -90,11 +109,12 @@ function d1Adapter(sqlite: DatabaseSync) {
 
   return {
     prepare(sql: string) {
-      return {
+      const statement = bound(sql, []);
+      return Object.assign(statement, {
         bind(...bindings: unknown[]) {
           return bound(sql, bindings);
         },
-      };
+      });
     },
     async batch(statements: BoundStatement[]) {
       sqlite.exec('BEGIN');
@@ -118,12 +138,36 @@ const sqlite = new DatabaseSync(databasePath);
 sqlite.exec('PRAGMA busy_timeout = 5000');
 
 try {
-  const result = await runAfadSync(d1Adapter(sqlite), {
-    now: new Date(),
-    windowMinutes: windowMinutes(),
-    trigger: 'manual',
-  });
-  console.log(JSON.stringify({ databasePath, ...result }, null, 2));
+  const selectedTrigger = trigger();
+  const selectedSource = source();
+  const database = d1Adapter(sqlite);
+  const runSync = selectedSource === 'USGS' ? runUsgsSync : runAfadSync;
+  const result =
+    selectedTrigger === 'scheduled'
+      ? await runObservedScheduledSourceSync(
+          database,
+          selectedSource,
+          runSync,
+          {
+          scheduledTime: Date.now(),
+          },
+        )
+      : await runSync(database, {
+          now: new Date(),
+          windowMinutes: windowMinutes(),
+          trigger: 'manual',
+        });
+  const retention =
+    selectedSource === 'AFAD' && result.status === 'succeeded'
+      ? await pruneRecentAfadCatalog(database)
+      : null;
+  console.log(
+    JSON.stringify(
+      { databasePath, source: selectedSource, ...result, retention },
+      null,
+      2,
+    ),
+  );
 } finally {
   sqlite.close();
 }

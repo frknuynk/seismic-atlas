@@ -4,7 +4,16 @@ import {
   type CatalogCompleteness,
   verifyCatalogGeneration,
 } from '@/lib/api/catalog-pages';
-import type { CatalogEvent, EventsResponse } from '@/shared/schemas';
+import type {
+  CatalogEvent,
+  CatalogGeneration,
+  EventsResponse,
+} from '@/shared/schemas';
+
+const stableGeneration: CatalogGeneration = {
+  lastSuccessAt: '2026-09-09T12:00:00.000Z',
+  lastRun: { id: 'run-1', status: 'succeeded' },
+};
 
 function event(index: number): CatalogEvent {
   return {
@@ -28,6 +37,7 @@ function payload(
     total: number;
     hasMore: boolean;
     nextCursor: string | null;
+    generation?: CatalogGeneration;
   },
 ): EventsResponse {
   return {
@@ -38,6 +48,7 @@ function payload(
       source: ['AFAD'],
       freshness: {},
       ...metadata,
+      generation: metadata.generation ?? stableGeneration,
     },
     events,
   };
@@ -76,6 +87,7 @@ describe('complete catalog pagination', () => {
     );
 
     expect(result.events).toHaveLength(2_501);
+    expect(result.generation).toEqual(stableGeneration);
     expect(result.completeness).toEqual<CatalogCompleteness>({
       complete: true,
       loaded: 2_501,
@@ -149,5 +161,40 @@ describe('complete catalog pagination', () => {
         },
       ),
     ).toMatchObject({ complete: false, reason: 'catalog_changed' });
+  });
+
+  it('stops pagination when the catalog generation changes between pages', async () => {
+    let request = 0;
+    const fetcher = (async () => {
+      request += 1;
+      return Response.json(
+        payload([event(request)], {
+          total: 2,
+          hasMore: request === 1,
+          nextCursor: request === 1 ? 'next_page' : null,
+          generation:
+            request === 1
+              ? stableGeneration
+              : {
+                  lastSuccessAt: '2026-09-09T12:05:00.000Z',
+                  lastRun: { id: 'run-2', status: 'succeeded' },
+                },
+        }),
+      );
+    }) as typeof fetch;
+
+    const result = await fetchCatalogPages(
+      new URLSearchParams({
+        start: '2026-09-01T00:00:00.000Z',
+        end: '2026-09-10T00:00:00.000Z',
+      }),
+      { fetcher, pageSize: 1 },
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.completeness).toMatchObject({
+      complete: false,
+      reason: 'catalog_changed',
+    });
   });
 });

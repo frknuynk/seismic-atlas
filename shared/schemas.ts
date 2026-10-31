@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const SourceCodeSchema = z.enum(['AFAD', 'USGS', 'EMSC', 'ISC', 'GCMT']);
+export const RECENT_CATALOG_WINDOW_MS = 7 * 24 * 60 * 60_000;
 
 export const NormalizedSourceEventSchema = z.object({
   source: SourceCodeSchema,
@@ -28,7 +29,7 @@ export const EventQuerySchema = z
     maxMag: z.coerce.number().optional(),
     minDepth: z.coerce.number().nonnegative().optional(),
     maxDepth: z.coerce.number().nonnegative().optional(),
-    source: SourceCodeSchema.optional(),
+    source: z.literal('AFAD').default('AFAD'),
     limit: z.coerce.number().int().positive().max(2_500).default(1_000),
     cursor: z
       .string()
@@ -41,6 +42,15 @@ export const EventQuerySchema = z
     message: 'start must be before or equal to end',
     path: ['start'],
   })
+  .refine(
+    (value) =>
+      Date.parse(value.end) - Date.parse(value.start) <=
+      RECENT_CATALOG_WINDOW_MS,
+    {
+      message: 'event queries may not exceed seven days',
+      path: ['end'],
+    },
+  )
   .refine(
     (value) =>
       value.minLat === undefined ||
@@ -89,7 +99,7 @@ const AfadBackfillRequestSchema = z
     },
   );
 
-export const AfadSyncRequestSchema = z.union([
+export const SourceSyncRequestSchema = z.union([
   z.object({
     mode: z.literal('sync'),
     windowMinutes: z
@@ -101,6 +111,7 @@ export const AfadSyncRequestSchema = z.union([
   }),
   AfadBackfillRequestSchema,
 ]);
+export const AfadSyncRequestSchema = SourceSyncRequestSchema;
 
 export const CatalogEventSchema = z.object({
   id: z.string().min(1),
@@ -116,6 +127,16 @@ export const CatalogEventSchema = z.object({
   revisionCount: z.number().int().nonnegative(),
 });
 
+export const CatalogGenerationSchema = z.object({
+  lastSuccessAt: z.iso.datetime({ offset: true }).nullable(),
+  lastRun: z
+    .object({
+      id: z.string().min(1),
+      status: z.enum(['running', 'succeeded', 'failed']),
+    })
+    .nullable(),
+});
+
 export const EventsResponseSchema = z.object({
   meta: z.object({
     count: z.number().int().nonnegative(),
@@ -124,6 +145,7 @@ export const EventsResponseSchema = z.object({
     hasMore: z.boolean(),
     truncated: z.boolean(),
     nextCursor: z.string().nullable(),
+    generation: CatalogGenerationSchema,
     source: z.array(SourceCodeSchema),
     freshness: z.object({
       AFAD: z.iso.datetime({ offset: true }).optional(),
@@ -203,6 +225,8 @@ export const SourceHealthEntrySchema = z.object({
 
 export const SourceHealthResponseSchema = z.object({
   AFAD: SourceHealthEntrySchema,
+  USGS: SourceHealthEntrySchema.optional(),
+  EMSC: SourceHealthEntrySchema.optional(),
 });
 
 export const EventRevisionSchema = z.object({
@@ -230,14 +254,14 @@ export const ServiceHealthSchema = z.object({
   service: z.literal('seismic-atlas-api'),
   status: z.literal('ok'),
   phase: z.literal(1),
-  version: z.literal('0.7.0-alpha.0'),
+  version: z.literal('0.8.0-alpha.0'),
   databaseBinding: z.literal('DB'),
   timestamp: z.iso.datetime({ offset: true }),
 });
 
 export const CatalogQualityResponseSchema = z.object({
   generatedAt: z.iso.datetime({ offset: true }),
-  source: z.literal('AFAD'),
+  source: SourceCodeSchema,
   status: z.enum(['healthy', 'warning', 'critical']),
   coverage: z.object({
     firstEventTime: z.iso.datetime({ offset: true }).nullable(),
@@ -280,14 +304,18 @@ export const CatalogQualityResponseSchema = z.object({
 });
 
 export type NormalizedSourceEvent = z.infer<typeof NormalizedSourceEventSchema>;
+export type SourceCode = z.infer<typeof SourceCodeSchema>;
 export type EventQuery = z.infer<typeof EventQuerySchema>;
 export type CatalogEvent = z.infer<typeof CatalogEventSchema>;
+export type CatalogGeneration = z.infer<typeof CatalogGenerationSchema>;
 export type EventsResponse = z.infer<typeof EventsResponseSchema>;
 export type SourceHealthResponse = z.infer<typeof SourceHealthResponseSchema>;
+export type SourceHealthEntry = z.infer<typeof SourceHealthEntrySchema>;
 export type EventRevision = z.infer<typeof EventRevisionSchema>;
 export type EventDetail = z.infer<typeof EventDetailSchema>;
 export type ServiceHealth = z.infer<typeof ServiceHealthSchema>;
 export type AfadSyncRequest = z.infer<typeof AfadSyncRequestSchema>;
+export type SourceSyncRequest = z.infer<typeof SourceSyncRequestSchema>;
 export type CatalogQualityResponse = z.infer<
   typeof CatalogQualityResponseSchema
 >;

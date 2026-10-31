@@ -1,41 +1,76 @@
-export const AFAD_SCHEDULE = {
-  cadenceMinutes: 60,
-  cronMinute: 7,
-  delayedAfterMinutes: 75,
-  staleAfterMinutes: 180,
-  schedulerOverdueAfterMinutes: 120,
+import type { SourceCode } from '@/shared/schemas';
+
+export const SOURCE_SCHEDULES = {
+  AFAD: {
+    cadenceMinutes: 5,
+    cronOffsetMinutes: 0,
+    delayedAfterMinutes: 15,
+    staleAfterMinutes: 60,
+    schedulerOverdueAfterMinutes: 15,
+  },
+  USGS: {
+    cadenceMinutes: 5,
+    cronOffsetMinutes: 0,
+    delayedAfterMinutes: 15,
+    staleAfterMinutes: 60,
+    schedulerOverdueAfterMinutes: 15,
+  },
+  EMSC: {
+    cadenceMinutes: 5,
+    cronOffsetMinutes: 0,
+    delayedAfterMinutes: 15,
+    staleAfterMinutes: 60,
+    schedulerOverdueAfterMinutes: 15,
+  },
+  ISC: {
+    cadenceMinutes: 1_440,
+    cronOffsetMinutes: 0,
+    delayedAfterMinutes: 1_500,
+    staleAfterMinutes: 4_320,
+    schedulerOverdueAfterMinutes: 1_500,
+  },
+  GCMT: {
+    cadenceMinutes: 1_440,
+    cronOffsetMinutes: 0,
+    delayedAfterMinutes: 1_500,
+    staleAfterMinutes: 4_320,
+    schedulerOverdueAfterMinutes: 1_500,
+  },
 } as const;
+
+export const AFAD_SCHEDULE = SOURCE_SCHEDULES.AFAD;
 
 export type SourceFreshnessState =
   | 'fresh'
   | 'delayed'
   | 'stale'
   | 'unknown';
-
 export type SchedulerRunState = 'running' | 'succeeded' | 'failed';
 
-function nextHourlyRun(now: number, minute: number) {
-  const next = new Date(now);
-  next.setUTCSeconds(0, 0);
-  next.setUTCMinutes(minute);
-  if (next.getTime() <= now) next.setUTCHours(next.getUTCHours() + 1);
-  return next.getTime();
+function nextScheduledRun(
+  now: number,
+  cadenceMinutes: number,
+  offsetMinutes: number,
+) {
+  const cadenceMs = cadenceMinutes * 60_000;
+  const offsetMs = offsetMinutes * 60_000;
+  return Math.floor((now - offsetMs) / cadenceMs + 1) * cadenceMs + offsetMs;
 }
 
-export function afadSourceTiming(
+export function sourceTiming(
+  source: SourceCode,
   lastSuccessAt: number | null,
   now = Date.now(),
 ) {
+  const schedule = SOURCE_SCHEDULES[source];
   const ageMs =
     lastSuccessAt === null ? null : Math.max(0, now - lastSuccessAt);
-  const delayedAfterMs = AFAD_SCHEDULE.delayedAfterMinutes * 60_000;
-  const staleAfterMs = AFAD_SCHEDULE.staleAfterMinutes * 60_000;
   const state: SourceFreshnessState =
     ageMs === null
       ? 'unknown'
-      : ageMs > staleAfterMs
+      : ageMs > schedule.staleAfterMinutes * 60_000
         ? 'stale'
-        : ageMs > delayedAfterMs
+        : ageMs > schedule.delayedAfterMinutes * 60_000
           ? 'delayed'
           : 'fresh';
 
@@ -46,17 +81,22 @@ export function afadSourceTiming(
       ageMinutes: ageMs === null ? null : Math.floor(ageMs / 60_000),
     },
     schedule: {
-      cadenceMinutes: AFAD_SCHEDULE.cadenceMinutes,
-      delayedAfterMinutes: AFAD_SCHEDULE.delayedAfterMinutes,
-      staleAfterMinutes: AFAD_SCHEDULE.staleAfterMinutes,
+      cadenceMinutes: schedule.cadenceMinutes,
+      delayedAfterMinutes: schedule.delayedAfterMinutes,
+      staleAfterMinutes: schedule.staleAfterMinutes,
       nextScheduledAt: new Date(
-        nextHourlyRun(now, AFAD_SCHEDULE.cronMinute),
+        nextScheduledRun(
+          now,
+          schedule.cadenceMinutes,
+          schedule.cronOffsetMinutes,
+        ),
       ).toISOString(),
     },
   };
 }
 
-export function afadSchedulerHealth(
+export function sourceSchedulerHealth(
+  source: SourceCode,
   lastScheduledRun: {
     startedAt: number;
     completedAt: number | null;
@@ -64,16 +104,16 @@ export function afadSchedulerHealth(
   } | null,
   now = Date.now(),
 ) {
+  const schedule = SOURCE_SCHEDULES[source];
   const ageMs =
     lastScheduledRun === null
       ? null
       : Math.max(0, now - lastScheduledRun.startedAt);
-  const overdueAfterMs =
-    AFAD_SCHEDULE.schedulerOverdueAfterMinutes * 60_000;
   const state =
     lastScheduledRun === null
       ? ('missing' as const)
-      : ageMs !== null && ageMs > overdueAfterMs
+      : ageMs !== null &&
+          ageMs > schedule.schedulerOverdueAfterMinutes * 60_000
         ? ('overdue' as const)
         : lastScheduledRun.status === 'running'
           ? ('running' as const)
@@ -82,7 +122,7 @@ export function afadSchedulerHealth(
   return {
     state,
     checkedAt: new Date(now).toISOString(),
-    overdueAfterMinutes: AFAD_SCHEDULE.schedulerOverdueAfterMinutes,
+    overdueAfterMinutes: schedule.schedulerOverdueAfterMinutes,
     lastScheduledAt:
       lastScheduledRun === null
         ? null
@@ -93,4 +133,22 @@ export function afadSchedulerHealth(
         : new Date(lastScheduledRun.completedAt).toISOString(),
     lastScheduledStatus: lastScheduledRun?.status ?? null,
   };
+}
+
+export function afadSourceTiming(
+  lastSuccessAt: number | null,
+  now = Date.now(),
+) {
+  return sourceTiming('AFAD', lastSuccessAt, now);
+}
+
+export function afadSchedulerHealth(
+  lastScheduledRun: {
+    startedAt: number;
+    completedAt: number | null;
+    status: SchedulerRunState;
+  } | null,
+  now = Date.now(),
+) {
+  return sourceSchedulerHealth('AFAD', lastScheduledRun, now);
 }

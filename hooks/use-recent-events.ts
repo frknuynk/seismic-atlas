@@ -12,6 +12,10 @@ import {
   type CatalogCompleteness,
   verifyCatalogGeneration,
 } from '@/lib/api/catalog-pages';
+import {
+  EVENT_POLL_INTERVAL_MS,
+  shouldRunScheduledPoll,
+} from '@/lib/polling';
 
 type CatalogState = 'loading' | 'ready' | 'error';
 
@@ -20,9 +24,7 @@ export function useRecentEvents(
   bounds: MapBounds | null,
 ) {
   const [events, setEvents] = useState<CatalogEvent[]>([]);
-  const [health, setHealth] = useState<SourceHealthResponse['AFAD'] | null>(
-    null,
-  );
+  const [health, setHealth] = useState<SourceHealthResponse | null>(null);
   const [state, setState] = useState<CatalogState>('loading');
   const [completeness, setCompleteness] = useState<CatalogCompleteness>({
     complete: false,
@@ -36,8 +38,25 @@ export function useRecentEvents(
 
   useEffect(() => {
     const controller = new AbortController();
+    let inFlight = false;
+    let lastStartedAt: number | null = null;
 
     async function load() {
+      const now = Date.now();
+      if (
+        inFlight ||
+        !shouldRunScheduledPoll(
+          document.visibilityState,
+          lastStartedAt,
+          now,
+          EVENT_POLL_INTERVAL_MS,
+        )
+      ) {
+        return;
+      }
+
+      inFlight = true;
+      lastStartedAt = now;
       try {
         const end = new Date();
         const start = new Date(end.valueOf() - 7 * 24 * 60 * 60 * 1_000);
@@ -70,16 +89,15 @@ export function useRecentEvents(
         const catalog = await fetchCatalogPages(params, {
           signal: controller.signal,
         });
-        const healthPayload: SourceHealthResponse = await loadHealth();
         const verifiedCompleteness = verifyCatalogGeneration(
           catalog.completeness,
           healthBefore.AFAD,
-          healthPayload.AFAD,
+          catalog.generation,
         );
 
         setEvents(catalog.events);
         setCompleteness(verifiedCompleteness);
-        setHealth(healthPayload.AFAD);
+        setHealth(healthBefore);
         setState('ready');
       } catch (error) {
         if ((error as Error).name !== 'AbortError') {
@@ -91,15 +109,22 @@ export function useRecentEvents(
             reason: 'request_failed',
           }));
         }
+      } finally {
+        inFlight = false;
       }
     }
 
     void load();
-    const interval = window.setInterval(load, 60_000);
+    const interval = window.setInterval(load, EVENT_POLL_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       controller.abort();
       window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [
     bounds?.maxLat,

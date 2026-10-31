@@ -45,7 +45,7 @@ import { eventInTimelineWindow } from '@/lib/timeline';
 import { isLegacyOverviewCamera } from '@/lib/map/turkiye-overview';
 import { sequenceMembership } from '@/lib/map/sequence-style';
 import type { SequencePlaybackSnapshot } from '@/lib/science/sequence-playback';
-import type { SourceHealthResponse } from '@/shared/schemas';
+import type { SourceHealthEntry } from '@/shared/schemas';
 import {
   DEFAULT_ATLAS_FILTERS,
   type AtlasFilters,
@@ -92,7 +92,7 @@ function sourceStatusColor(status: string | null | undefined) {
 }
 
 function sourceFreshnessBadge(
-  freshness: SourceHealthResponse['AFAD']['freshness'] | undefined,
+  freshness: SourceHealthEntry['freshness'] | undefined,
 ) {
   if (freshness?.state === 'fresh') {
     return { label: 'Fresh', className: 'bg-emerald-400/10 text-emerald-200' };
@@ -107,19 +107,19 @@ function sourceFreshnessBadge(
 }
 
 function sourceFreshnessNotice(
-  freshness: SourceHealthResponse['AFAD']['freshness'] | undefined,
+  freshness: SourceHealthEntry['freshness'] | undefined,
 ) {
   if (freshness?.state === 'stale') {
-    return 'The stored catalog is more than three hours old. New AFAD events may be missing until synchronization recovers.';
+    return 'The stored catalog is more than one hour old. New AFAD events may be missing until synchronization recovers.';
   }
   if (freshness?.state === 'delayed') {
-    return 'The hourly update is late. New AFAD events may not be present yet.';
+    return 'The five-minute update is late. New AFAD events may not be present yet.';
   }
   return null;
 }
 
 function sourceScheduleMessage(
-  schedule: SourceHealthResponse['AFAD']['schedule'] | undefined,
+  schedule: SourceHealthEntry['schedule'] | undefined,
 ) {
   if (!schedule) return null;
   const nextRun = new Intl.DateTimeFormat('en-GB', {
@@ -127,11 +127,11 @@ function sourceScheduleMessage(
     minute: '2-digit',
     timeZone: 'Europe/Istanbul',
   }).format(new Date(schedule.nextScheduledAt));
-  return `Hourly updates · next scheduled check around ${nextRun}`;
+  return `5-minute updates · next scheduled check around ${nextRun}`;
 }
 
 function schedulerBadge(
-  scheduler: SourceHealthResponse['AFAD']['scheduler'] | undefined,
+  scheduler: SourceHealthEntry['scheduler'] | undefined,
 ) {
   if (scheduler?.state === 'healthy') {
     return { label: 'Healthy', className: 'bg-emerald-400/10 text-emerald-200' };
@@ -146,26 +146,26 @@ function schedulerBadge(
 }
 
 function schedulerRunLabel(
-  scheduler: SourceHealthResponse['AFAD']['scheduler'] | undefined,
+  scheduler: SourceHealthEntry['scheduler'] | undefined,
 ) {
   if (!scheduler?.lastScheduledAt) return 'No scheduled run recorded.';
   return `${sourceFreshness(scheduler.lastScheduledAt).replace('Synchronized', 'Last scheduled run started')}${scheduler.lastScheduledStatus ? ` · ${scheduler.lastScheduledStatus}` : ''}.`;
 }
 
 function schedulerNotice(
-  scheduler: SourceHealthResponse['AFAD']['scheduler'] | undefined,
+  scheduler: SourceHealthEntry['scheduler'] | undefined,
 ) {
   if (scheduler?.state === 'missing') {
     return 'No scheduled ingestion has been recorded. Manual synchronizations do not clear this warning.';
   }
   if (scheduler?.state === 'overdue') {
-    return 'No scheduled ingestion has started in the last two hours. Check the Cloudflare Cron trigger.';
+    return 'No scheduled ingestion has started in the last fifteen minutes. Check the Cloudflare Cron trigger.';
   }
   return null;
 }
 
 function sourceProtectionMessage(
-  control: SourceHealthResponse['AFAD']['requestControl'] | undefined,
+  control: SourceHealthEntry['requestControl'] | undefined,
 ) {
   if (!control || control.status !== 'open' || !control.retryAt) return null;
   const retryAt = new Intl.DateTimeFormat('en-GB', {
@@ -179,7 +179,7 @@ function sourceProtectionMessage(
 }
 
 function syncRunSummary(
-  run: NonNullable<SourceHealthResponse['AFAD']['lastRun']>,
+  run: NonNullable<SourceHealthEntry['lastRun']>,
 ) {
   if (run.status === 'running') return 'Synchronization is currently running.';
   if (run.status === 'failed') {
@@ -198,7 +198,7 @@ function SourceHealthPanel({
   health,
   titleId = 'source-title',
 }: {
-  health: SourceHealthResponse['AFAD'] | null;
+  health: SourceHealthEntry | null;
   titleId?: string;
 }) {
   const protectionMessage = sourceProtectionMessage(health?.requestControl);
@@ -215,7 +215,7 @@ function SourceHealthPanel({
         className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
       >
         <Database className="size-4" aria-hidden="true" />
-        Source health
+        AFAD source health
       </h2>
       <div className="rounded-md border bg-card/55 p-3">
         <div className="flex items-center justify-between gap-2 text-sm">
@@ -237,6 +237,22 @@ function SourceHealthPanel({
           {sourceFreshness(health?.lastSuccessAt)}. Stored results remain
           available during upstream interruptions.
         </p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Earthquake data provided by{' '}
+          <a
+            href="https://deprem.afad.gov.tr/event-service"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            T.C. İçişleri Bakanlığı AFAD – TDVMS
+          </a>
+          .
+        </p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Seismic Atlas is an independent application and is not an official
+          AFAD service.
+        </p>
         {scheduleMessage && (
           <p className="mt-1 flex items-center gap-1.5 text-xs leading-5 text-muted-foreground">
             <Clock3 className="size-3.5 shrink-0" aria-hidden="true" />
@@ -254,6 +270,18 @@ function SourceHealthPanel({
           </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {schedulerRunLabel(health?.scheduler)}
+          </p>
+        </div>
+        <div className="mt-2 rounded border border-cyan-300/15 bg-cyan-300/5 p-2">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium">Free-tier guardrails</span>
+            <span className="shrink-0 rounded-full bg-cyan-300/10 px-2 py-0.5 text-[11px] font-medium text-cyan-100">
+              Active
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            5-minute visible refresh · hidden-tab polling paused · distributed
+            tracing disabled
           </p>
         </div>
         {cronNotice && (
@@ -398,7 +426,7 @@ export function AtlasShell({
     quality,
     state: qualityState,
     refresh: refreshQuality,
-  } = useCatalogQuality();
+  } = useCatalogQuality(mode === 'lab');
   const { detail, loading: detailLoading } = useEventDetail(selectedEventId);
   const selectedEvents = useMemo(
     () =>
@@ -720,13 +748,15 @@ export function AtlasShell({
                 </div>
               </section>
 
-              <SourceHealthPanel health={health} />
+              <SourceHealthPanel health={health?.AFAD ?? null} />
 
-              <CatalogIntegrity
-                quality={quality}
-                state={qualityState}
-                onRefresh={refreshQuality}
-              />
+              {mode === 'lab' && (
+                <CatalogIntegrity
+                  quality={quality}
+                  state={qualityState}
+                  onRefresh={refreshQuality}
+                />
+              )}
             </div>
           </ScrollArea>
         </aside>
@@ -852,15 +882,17 @@ export function AtlasShell({
                 </SheetHeader>
                 <div className="space-y-6 p-4">
                   <SourceHealthPanel
-                    health={health}
+                    health={health?.AFAD ?? null}
                     titleId="source-title-mobile"
                   />
-                  <CatalogIntegrity
-                    titleId="integrity-title-mobile"
-                    quality={quality}
-                    state={qualityState}
-                    onRefresh={refreshQuality}
-                  />
+                  {mode === 'lab' && (
+                    <CatalogIntegrity
+                      titleId="integrity-title-mobile"
+                      quality={quality}
+                      state={qualityState}
+                      onRefresh={refreshQuality}
+                    />
+                  )}
                 </div>
               </SheetContent>
             </Sheet>
@@ -869,9 +901,6 @@ export function AtlasShell({
           {mode === 'lab' ? (
             <CatalogLab
               events={selectedEvents}
-              filters={filters}
-              bounds={bounds}
-              timelineWindow={selectedTimeWindow}
               completeness={completeness}
               state={catalogAnalysis}
               selectedSequenceId={activeSequenceId}
@@ -905,7 +934,7 @@ export function AtlasShell({
                   <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1.5">
                       <Clock3 className="size-3.5" aria-hidden="true" />{' '}
-                      {sourceFreshness(health?.lastSuccessAt)}
+                      {sourceFreshness(health?.AFAD.lastSuccessAt)}
                     </span>
                     <span className="font-mono">
                       M {filters.minMagnitude.toFixed(1)}+

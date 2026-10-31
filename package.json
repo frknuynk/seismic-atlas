@@ -16,7 +16,10 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "data:build:faults": "node scripts/build_fault_layer.mjs",
-    "sync:afad:local": "node --import tsx scripts/sync_afad_local.ts",
+    "sync:usgs:local": "node --import tsx scripts/sync_afad_local.ts --source=USGS",
+    "sync:usgs:scheduled:local": "node --import tsx scripts/sync_afad_local.ts --source=USGS --trigger=scheduled",
+    "sync:afad:local": "node --import tsx scripts/sync_afad_local.ts --source=AFAD",
+    "sync:afad:scheduled:local": "node --import tsx scripts/sync_afad_local.ts --source=AFAD --trigger=scheduled",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply seismic-atlas-local --local --config wrangler.jsonc"
   },

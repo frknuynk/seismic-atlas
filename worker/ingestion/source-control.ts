@@ -1,5 +1,3 @@
-import { AfadSourceError } from '@/worker/sources/afad';
-
 const FORBIDDEN_COOLDOWN_MS = 24 * 60 * 60_000;
 const RATE_LIMIT_COOLDOWN_MS = 60 * 60_000;
 const FAILURE_COOLDOWN_MS = 60 * 60_000;
@@ -55,13 +53,15 @@ export async function sourceCircuitGate(
   };
 }
 
+type SourceControlError = {
+  code: string;
+  retryAfterMs: number | null;
+};
+
 function isUpstreamFailure(code: string) {
   return (
-    code === 'AFAD_TIMEOUT' ||
-    code === 'AFAD_NETWORK_ERROR' ||
-    code === 'AFAD_INVALID_JSON' ||
-    code === 'AFAD_INVALID_PAYLOAD' ||
-    /^AFAD_HTTP_(408|429|5\d\d)$/.test(code)
+    /_(TIMEOUT|NETWORK_ERROR|INVALID_JSON|INVALID_PAYLOAD)$/.test(code) ||
+    /_HTTP_(408|429|5\d\d)$/.test(code)
   );
 }
 
@@ -70,13 +70,13 @@ export function planSourceCircuitFailure({
   previousFailures,
   now,
 }: {
-  error: AfadSourceError;
+  error: SourceControlError;
   previousFailures: number;
   now: number;
 }): SourceCircuitFailure | null {
   const nextFailures = previousFailures + 1;
 
-  if (error.code === 'AFAD_HTTP_403') {
+  if (error.code.endsWith('_HTTP_403')) {
     return {
       consecutiveFailures: nextFailures,
       circuitOpenUntil: now + FORBIDDEN_COOLDOWN_MS,
@@ -84,7 +84,7 @@ export function planSourceCircuitFailure({
     };
   }
 
-  if (error.code === 'AFAD_HTTP_429') {
+  if (error.code.endsWith('_HTTP_429')) {
     return {
       consecutiveFailures: nextFailures,
       circuitOpenUntil:

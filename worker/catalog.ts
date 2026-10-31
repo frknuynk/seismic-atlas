@@ -3,11 +3,12 @@ import type {
   EventDetail,
   EventQuery,
   EventsResponse,
+  SourceCode,
   SourceHealthResponse,
 } from '@/shared/schemas';
 import {
-  afadSchedulerHealth,
-  afadSourceTiming,
+  sourceSchedulerHealth,
+  sourceTiming,
 } from '@/shared/source-timing';
 
 type EventRow = {
@@ -41,7 +42,7 @@ export class InvalidCatalogCursorError extends Error {
 }
 
 type HealthRow = {
-  source: 'AFAD';
+  source: SourceCode;
   status: 'ok' | 'delayed' | 'error' | 'never_synced';
   last_attempt_at: number | null;
   last_success_at: number | null;
@@ -222,7 +223,7 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
     LIMIT ?`,
   );
 
-  const [countRow, result, health] = await Promise.all([
+  const [countRow, result] = await Promise.all([
     db
       .prepare(
         `SELECT COUNT(*) AS total
@@ -232,8 +233,9 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
       .bind(...values)
       .first<CountRow>(),
     statement.bind(...pageValues, query.limit + 1).all<EventRow>(),
-    getSourceHealth(db),
   ]);
+  const health = await getSourceHealth(db);
+  const catalogHealth = health.AFAD;
   const pageRows = result.results.slice(0, query.limit);
   const events: CatalogEvent[] = pageRows.map((row) => ({
     id: row.id,
@@ -267,9 +269,18 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
       hasMore,
       truncated: total > events.length,
       nextCursor,
-      source: query.source ? [query.source] : ['AFAD'],
-      freshness: health.AFAD.lastSuccessAt
-        ? { AFAD: health.AFAD.lastSuccessAt }
+      generation: {
+        lastSuccessAt: catalogHealth.lastSuccessAt,
+        lastRun: catalogHealth.lastRun
+          ? {
+              id: catalogHealth.lastRun.id,
+              status: catalogHealth.lastRun.status,
+            }
+          : null,
+      },
+      source: ['AFAD'],
+      freshness: catalogHealth.lastSuccessAt
+        ? { AFAD: catalogHealth.lastSuccessAt }
         : {},
     },
     events,
@@ -278,9 +289,10 @@ export async function queryEvents(db: D1Database, query: EventQuery) {
   return response;
 }
 
-export async function getSourceHealth(
+async function getSourceHealthEntry(
   db: D1Database,
-): Promise<SourceHealthResponse> {
+  source: Extract<SourceCode, 'AFAD' | 'USGS' | 'EMSC'>,
+) {
   const now = Date.now();
   const [row, lastRun, lastScheduledRun, requestControl] = await Promise.all([
     db
@@ -290,7 +302,7 @@ export async function getSourceHealth(
         FROM source_health
         WHERE source = ?`,
       )
-      .bind('AFAD')
+      .bind(source)
       .first<HealthRow>(),
     db
       .prepare(
@@ -303,7 +315,7 @@ export async function getSourceHealth(
         ORDER BY started_at DESC
         LIMIT 1`,
       )
-      .bind('AFAD')
+      .bind(source)
       .first<IngestionRunRow>(),
     db
       .prepare(
@@ -316,7 +328,7 @@ export async function getSourceHealth(
         ORDER BY started_at DESC
         LIMIT 1`,
       )
-      .bind('AFAD')
+      .bind(source)
       .first<IngestionRunRow>(),
     db
       .prepare(
@@ -324,7 +336,7 @@ export async function getSourceHealth(
         FROM source_request_control
         WHERE source = ?`,
       )
-      .bind('AFAD')
+      .bind(source)
       .first<SourceRequestControlRow>(),
   ]);
 
@@ -339,7 +351,8 @@ export async function getSourceHealth(
       ? (requestControl.last_error_code ?? null)
       : null,
   };
-  const scheduler = afadSchedulerHealth(
+  const scheduler = sourceSchedulerHealth(
+    source,
     lastScheduledRun
       ? {
           startedAt: lastScheduledRun.started_at,
@@ -351,24 +364,22 @@ export async function getSourceHealth(
   );
 
   if (!row) {
-    const timing = afadSourceTiming(null, now);
+    const timing = sourceTiming(source, null, now);
     return {
-      AFAD: {
-        status: 'never_synced',
-        lastAttemptAt: null,
-        lastSuccessAt: null,
-        latestEventTime: null,
-        consecutiveFailures: 0,
-        ...timing,
-        scheduler,
-        requestControl: requestControlResponse,
-        lastRun: null,
-        lastScheduledRun: ingestionRunSummary(lastScheduledRun),
-      },
+      status: 'never_synced' as const,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      latestEventTime: null,
+      consecutiveFailures: 0,
+      ...timing,
+      scheduler,
+      requestControl: requestControlResponse,
+      lastRun: null,
+      lastScheduledRun: ingestionRunSummary(lastScheduledRun),
     };
   }
 
-  const timing = afadSourceTiming(row.last_success_at, now);
+  const timing = sourceTiming(source, row.last_success_at, now);
   const status =
     row.status === 'ok' &&
     timing.freshness.state !== 'fresh'
@@ -376,24 +387,35 @@ export async function getSourceHealth(
       : row.status;
 
   return {
-    AFAD: {
-      status,
-      lastAttemptAt: iso(row.last_attempt_at),
-      lastSuccessAt: iso(row.last_success_at),
-      latestEventTime: iso(row.latest_event_time),
-      consecutiveFailures: row.consecutive_failures,
-      ...timing,
-      scheduler,
-      requestControl: requestControlResponse,
-      lastRun: ingestionRunSummary(lastRun),
-      lastScheduledRun: ingestionRunSummary(lastScheduledRun),
-    },
+    status,
+    lastAttemptAt: iso(row.last_attempt_at),
+    lastSuccessAt: iso(row.last_success_at),
+    latestEventTime: iso(row.latest_event_time),
+    consecutiveFailures: row.consecutive_failures,
+    ...timing,
+    scheduler,
+    requestControl: requestControlResponse,
+    lastRun: ingestionRunSummary(lastRun),
+    lastScheduledRun: ingestionRunSummary(lastScheduledRun),
   };
+}
+
+export async function getSourceHealth(
+  db: D1Database,
+  options: { includeUsgs?: boolean; includeEmsc?: boolean } = {},
+): Promise<SourceHealthResponse> {
+  const [AFAD, USGS, EMSC] = await Promise.all([
+    getSourceHealthEntry(db, 'AFAD'),
+    options.includeUsgs ? getSourceHealthEntry(db, 'USGS') : undefined,
+    options.includeEmsc ? getSourceHealthEntry(db, 'EMSC') : undefined,
+  ]);
+  return { AFAD, ...(USGS ? { USGS } : {}), ...(EMSC ? { EMSC } : {}) };
 }
 
 export async function getEventDetail(
   db: D1Database,
   id: string,
+  now = Date.now(),
 ): Promise<EventDetail | null> {
   const event = await db
     .prepare(
@@ -404,9 +426,9 @@ export async function getEventDetail(
         (SELECT COUNT(*) FROM source_event_revisions r
           WHERE r.source_event_pk = e.id) AS revision_count
       FROM source_events e
-      WHERE e.id = ?`,
+      WHERE e.id = ? AND e.source = 'AFAD' AND e.origin_time >= ?`,
     )
-    .bind(id)
+    .bind(id, now - 7 * 24 * 60 * 60_000)
     .first<EventDetailRow>();
 
   if (!event) return null;

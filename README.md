@@ -1,242 +1,321 @@
-# Seismic Atlas
+<div align="center">
+  <img src="public/favicon.svg" alt="Seismic Atlas mark" width="76" height="76" />
+  <h1>Seismic Atlas</h1>
+  <p><strong>A map-first, provenance-aware workspace for exploring recent seismicity in Türkiye.</strong></p>
+  <p>Live AFAD observations, regional active faults, transparent data health, and browser-side catalog analysis in one focused interface.</p>
+  <p>
+    <a href="https://github.com/frknuynk/seismic-atlas/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/frknuynk/seismic-atlas/actions/workflows/ci.yml/badge.svg" /></a>
+    <img alt="Version 0.8.0 alpha" src="https://img.shields.io/badge/version-0.8.0--alpha.0-22d3ee?style=flat-square" />
+    <img alt="Node 22+" src="https://img.shields.io/badge/Node.js-22%2B-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white" />
+    <img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat-square&logo=cloudflare&logoColor=white" />
+    <img alt="Data source AFAD" src="https://img.shields.io/badge/catalog-AFAD-38bdf8?style=flat-square" />
+  </p>
+</div>
 
-A map-first, provenance-aware seismic exploration workspace for Türkiye.
+![Seismic Atlas Explore mode showing recent AFAD earthquakes and GEM active faults](docs/images/seismic-atlas-explore.jpg)
 
-Current development version: **0.8.0-alpha.0**.
+> [!IMPORTANT]
+> Seismic Atlas is an independent exploration and research interface. It is not
+> an official AFAD service, an early-warning system, a hazard assessment, or an
+> earthquake forecasting product.
 
-Phase 0 establishes the deployable application, Cloudflare Worker runtime, D1
-schema, shared validation contracts, tests, and CI. The first Phase 1 slice adds
-bounded AFAD ingestion, revision-aware storage, catalog APIs, source health, and
-real earthquake markers on the 3D map. The atlas also renders 1,165 regional
-active-fault segments from the open GEM Global Active Faults Database and shows
-the nearest mapped segment as context for a selected earthquake. A synchronized
-timeline filters the map by time bucket, and current-view search locates stored
-events by place, magnitude, or AFAD event ID.
+## What it does
 
-The first v0.4 reliability slice adds bounded retry and timeout handling for
-AFAD, per-record quarantine for malformed upstream rows, deterministic
-within-batch deduplication, a D1-backed synchronization lease, and durable run
-diagnostics. Concurrent triggers no longer perform overlapping ingestion work,
-and the source-health response reports the latest run counters and failure code.
-Scheduled runs resume from the last successful cursor with overlap, recover gaps
-up to 24 hours, and perform a seven-day reconciliation every day to capture late
-AFAD revisions. Up to 25 malformed source records per run are preserved in a
-separate quarantine table for diagnosis and never enter the earthquake catalog.
-Responses that reach AFAD's 2,500-record ceiling are recursively split into
-smaller overlapping time windows and deduplicated across the boundary. If a
-one-second window is still saturated, ingestion fails without advancing its
-cursor rather than silently accepting incomplete data.
+| Explore | Investigate | Analyze | Trust |
+| --- | --- | --- | --- |
+| View recent AFAD events on a terrain-aware 3D map. | Inspect source values, revisions, and the nearest GEM-mapped fault segment. | Study distributions and reproducible proximity-based sequence candidates in Catalog Lab. | See source freshness, scheduler health, completeness, and protective circuit state. |
 
-The `afad-v3` persistence path loads existing source hashes once, then writes
-events and revisions with JSON-backed transactions of up to 1,000 events. Long
-runs renew their D1 lease, a replaced lease fences the old worker before it can
-write, and a new owner marks abandoned `running` records as failed. The source
-health audit includes the number of database write batches used by each run.
+- Synchronizes the official AFAD Event Web Service every five minutes.
+- Keeps a rolling seven-day catalog instead of building a historical mirror.
+- Combines earthquake markers, 1,165 regional GEM active-fault segments, search,
+  filters, and a synchronized event timeline.
+- Preserves source provenance and revisions without reclassifying earthquakes.
+- Runs catalog and sequence analysis in a browser Web Worker.
+- Remains useful during short upstream interruptions by serving the last stored
+  catalog with an explicit freshness warning.
 
-The first v0.5 research slice adds an Explore/Catalog Lab mode switch and a
-browser-side analysis worker. The Lab computes event-time, magnitude, depth,
-and cumulative frequency-magnitude distributions for the exact filtered map
-subset. It reports catalog coverage and magnitude-type composition, refuses to
-present a b-value before catalog completeness is estimated, and exports the
-selection as CSV, GeoJSON, or a reproducible methods manifest. Lab mode is part
-of the shareable URL and does not add server-side analysis cost.
+## Product tour
 
-Catalog reads are keyset-paginated in pages of at most 2,500 records. Each API
-response reports the total match count, returned count, continuation state, and
-an opaque cursor. The browser exhausts every page up to a 25,000-event safety
-cap and records the verified count in analysis manifests. Catalog Lab disables
-analysis and exports if a page is missing, a cursor repeats, counts change while
-paging, the browser cap is reached, or AFAD ingestion overlaps the read. This
-prevents a partial catalog from silently appearing as a complete scientific
-selection.
+### Explore recent seismicity
 
-The first v0.6 intelligence slice detects reproducible, proximity-based seismic
-sequence candidates inside a complete Catalog Lab selection. It uses indexed
-spatiotemporal single-linkage with explicit 30 km and 24 hour neighbor
-thresholds and requires at least three events. The results identify groups for
-exploration only; they do not classify mainshocks or aftershocks, attribute
-causation, estimate hazard, or forecast earthquakes. Analysis manifests record
-the method version and thresholds.
-Candidate membership is rendered as a color-coded map overlay. Selecting a Lab
-candidate keeps the complete analysis subset stable, fits every member above
-the Lab panel on desktop and mobile, and stores the stable candidate identifier
-in the shareable URL.
+Filter the last 24 hours, three days, or seven days; search within the current
+map view; select timeline buckets; and open any event without leaving the map.
 
-The first v0.7 Sequence Inspector slice opens a selected candidate as an
-explorable, chronological record. It shows the reported magnitude scatter and
-exact cumulative event count over time; selecting a member focuses its
-epicentre on the map without discarding the candidate or narrowing the verified
-catalog. Missing magnitudes are disclosed rather than imputed, and very dense
-charts are downsampled with the magnitude extremes and cumulative endpoint
-preserved. The member list loads in bounded pages for browser responsiveness.
-The inspector deliberately does not infer mainshocks, aftershocks, causation,
-hazard, or future seismicity. A selected candidate can now be exported as
-chronological CSV, point GeoJSON, and a methods manifest containing the exact
-member IDs, parent catalog selection, completeness audit, and detection
-thresholds. Export is unavailable while the catalog is incomplete or analysis
-is refreshing. The inspector also includes chronological playback with direct
-scrubbing and single-event stepping. During playback, charts reveal only the
-observations available at the current frame; the map dims upcoming candidate
-members, preserves previously observed members, and marks the current event
-without repeatedly moving the camera. Playback is an exploratory rendering of
-reported origin times, not a physical simulation or forecast.
+### Catalog Lab
 
-The first v0.8 data-trust slice separates upstream operational health from
-catalog freshness. Source health reports when freshness was evaluated, the age
-of the last successful synchronization, explicit fresh/delayed/stale states,
-and the next expected hourly run. The atlas warns when the stored catalog is
-late or more than three hours old while making clear that previously stored
-results remain available. Protective AFAD circuit-breaker state continues to be
-reported independently, so a recent failed attempt is not confused with stale
-data.
+Catalog Lab analyzes the exact verified map subset. It reports magnitude and
+depth coverage, distribution charts, completeness status, and proximity-based
+sequence candidates. It does **not** infer mainshocks, aftershocks, causation,
+hazard, or future seismicity.
 
-The same health contract includes an independent scheduler watchdog. It reads
-the latest `scheduled` ingestion run rather than the latest run of any kind, so
-a manual synchronization cannot hide a missing Cloudflare Cron trigger. The
-watchdog reports healthy, running, overdue, or missing; a two-hour gap is
-considered overdue and is surfaced separately from AFAD upstream failures.
+![Catalog Lab with completeness metrics and sequence candidates](docs/images/seismic-atlas-catalog-lab.jpg)
 
-## Requirements
+### Mobile data trust and provenance
 
-- Node.js 22.13 or newer
-- npm 10 or newer
-- Tippecanoe 2.79 or newer (only when rebuilding fault tiles)
+| Data status | Event detail |
+| :---: | :---: |
+| <img src="docs/images/seismic-atlas-data-status-mobile.jpg" alt="Mobile AFAD data status showing freshness and scheduler health" width="360" /> | <img src="docs/images/seismic-atlas-event-detail-mobile.jpg" alt="Mobile event detail showing AFAD provenance and source history" width="360" /> |
+| Freshness, cron watchdog, attribution, and free-tier guardrails. | Source solution, nearest mapped fault, AFAD event link, and revision history. |
 
-## Local development
+## How it works
+
+```mermaid
+flowchart LR
+    AFAD["AFAD Event Web Service"] --> INGEST["5-minute Worker ingestion"]
+    INGEST --> D1["Cloudflare D1<br/>rolling 7 days"]
+    D1 --> API["Same-origin app API"]
+    API --> ATLAS["React + MapLibre atlas"]
+    GEM["GEM active-fault PMTiles"] --> ATLAS
+    ATLAS --> LAB["Catalog Lab Web Worker"]
+```
+
+The ingestion path is bounded and revision-aware. It uses source-specific
+cursors, overlapping windows, deterministic deduplication, D1 leases, retries,
+quarantine records, a persistent circuit breaker, and daily seven-day
+reconciliation. A retention sweep removes older AFAD payloads and all inactive
+source catalog data.
+
+## Safety and data guardrails
+
+- **AFAD-only production catalog.** USGS and EMSC adapters are dormant and are
+  not invoked by production cron, production routes, or the UI.
+- **No bulk redistribution surface.** There is no CSV export, GeoJSON export,
+  historical archive, or documented general-purpose earthquake API.
+- **First-party reads only.** Catalog routes require same-origin browser fetch
+  metadata, accept only `AFAD`, and reject ranges longer than 168 hours.
+- **Transparent freshness.** Fresh, delayed, and stale states are separate from
+  upstream errors and scheduler health.
+- **Failure-safe ingestion.** Saturated or invalid source responses fail closed
+  without advancing the ingestion cursor.
+- **Free-tier conscious.** Visible-tab event polling runs every five minutes;
+  background polling stops; Catalog Lab quality checks are cached for 15
+  minutes; distributed tracing is disabled.
+
+## Quick start
+
+The following path has been verified against the current repository and a real
+AFAD synchronization.
+
+### Prerequisites
+
+- Node.js **22.13 or newer**
+- npm **10 or newer**
+- Network access to `https://deprem.afad.gov.tr`
+- Tippecanoe **2.79 or newer** only if you intend to rebuild the fault tiles
+
+### 1. Clone and install
 
 ```bash
-npm install
+git clone https://github.com/frknuynk/seismic-atlas.git
+cd seismic-atlas
+npm ci
+```
+
+### 2. Create the local D1 database
+
+```bash
 npm run db:migrate:local
+```
+
+Wrangler stores the local database under `.wrangler/`; it is intentionally not
+tracked by Git.
+
+### 3. Load the current seven-day AFAD window
+
+Keep the development server stopped while this command writes to local D1:
+
+```bash
+npm run sync:afad:local -- --minutes=10080
+```
+
+A successful result includes:
+
+```text
+"source": "AFAD"
+"status": "succeeded"
+"windowKind": "manual"
+"retention": { ... }
+```
+
+### 4. Start the application
+
+```bash
 npm run dev
 ```
 
-The development server prints its local URL. The API foundation is available at
-`/api/v1/health`.
+Open [http://localhost:3000](http://localhost:3000). The first map load should
+show recent markers, an event count, and a synchronized timestamp. The service
+health endpoint is available at
+[`/api/v1/health`](http://localhost:3000/api/v1/health); catalog endpoints are
+intentionally reserved for the first-party browser application.
 
-Run a first local AFAD synchronization with:
+### 5. Simulate the scheduled path
 
-```bash
-npm run sync:afad:local -- --minutes=15
-```
-
-This command runs the production ingestion pipeline in Node and writes to the
-same local D1 database used by the development server. It is the supported
-local fallback for a known `workerd` development-runtime interoperability issue
-with some upstream TLS endpoints. Stop the development server before running
-the command, then start it again to inspect the synchronized catalog. The
-Worker API route remains the production/manual synchronization entry point and
-must receive a successful remote smoke test before the production cron is
-enabled.
-
-The production route requires `AFAD_SYNC_TOKEN`. The Cloudflare Cron Trigger
-runs at minute 7 of every hour, so stored observations can be up to roughly one
-hour behind AFAD. Scheduled ingestion uses an overlapping cursor window of at
-least 15 minutes and never removes previously stored events when the upstream
-service is unavailable.
-
-Authorized HTTP-triggered synchronizations are limited to five attempts per
-minute by the `MANUAL_SYNC_RATE_LIMIT` Cloudflare binding. The scheduled Worker
-handler does not pass through that HTTP limit. Limit responses use status 429
-with `Retry-After: 60`; temporary limiter failures fail open because the bearer
-token and D1 ingestion lease remain mandatory.
-
-The Worker applies a same-origin browser security policy to every application
-response, including CSP, clickjacking, MIME-sniffing, referrer, permissions,
-and production HTTPS transport headers. No cross-origin API access is enabled;
-add an explicit origin allowlist only when a separate trusted client requires
-it.
-
-Every Worker request receives a server-generated `X-Request-ID`. API error
-envelopes return the same identifier so an operator can correlate a reported
-failure with structured Worker logs. Client-provided request IDs are never used
-for correlation. Custom logs omit query strings, authorization values, and IP
-addresses; they record bounded operational fields such as route path, status,
-duration, ingestion run ID, and sanitized error metadata.
-
-Cloudflare log persistence and invocation logs are enabled at full sampling
-within the Free-plan quota. Distributed tracing is explicitly disabled, so the
-application does not create trace events or consume trace capacity. Manual
-synchronization outcomes and scheduled AFAD cron runs emit structured start,
-completion, skip, and failure events. API statuses 401, 429, and 5xx are
-classified explicitly for dashboard queries and alerting.
-
-The AFAD adapter identifies Seismic Atlas on every request, limits retries to a
-bounded exponential backoff starting at two seconds with jitter, and honors the
-upstream `Retry-After` header. A persistent D1 circuit breaker pauses requests
-for at least one hour after rate limiting, for 24 hours after an HTTP 403, or
-after three consecutive upstream failures. The source-health response exposes
-an active protective pause and its retry time.
-
-Run an authorized historical backfill in daily chunks with:
+Stop the development server, then run:
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/internal/sync/afad \
-  -H 'Content-Type: application/json' \
-  -d '{"mode":"backfill","start":"2026-09-01T00:00:00.000Z","end":"2026-09-02T00:00:00.000Z"}'
+npm run sync:afad:scheduled:local
 ```
 
-Backfill windows are limited to 24 hours, use the same saturation-safe source
-adapter and D1 lease as normal ingestion, and never move the scheduled cursor
-backward. Catalog-wide integrity and field coverage are available from
-`/api/v1/data-quality` and in the Catalog integrity workspace card.
-
-Successful synchronization responses include a run ID, attempt and saturation
-split counts, accepted and rejected row counts, duplicate count, insert/update
-totals, and duration.
-When another synchronization already owns the AFAD lease, the second trigger is
-reported as `skipped` with reason `sync_in_progress`.
+This exercises the scheduled ingestion path and records a local cron run for
+the scheduler watchdog. It does not prove that a deployed Cloudflare Cron
+Trigger is firing.
 
 ## Validation
+
+Run the same quality gate used by CI:
 
 ```bash
 npm run check
 ```
 
-This runs type checking, linting, unit tests, and the production build.
+`npm run check` executes, in order:
 
-## Database migrations
+1. TypeScript type checking
+2. Oxlint
+3. The complete Vitest suite
+4. A production Vinext build
 
-Change `db/schema.ts`, then generate and inspect a migration:
+Latest verified local baseline:
 
-```bash
-npm run db:generate
-npm run db:migrate:local
+```text
+28 test files passed
+121 tests passed
+Typecheck clean
+Lint clean
+Production build successful
 ```
 
-Production database identifiers are intentionally not committed during Phase 0.
-The logical binding is `DB`, declared in `.openai/hosting.json`.
+Individual commands:
 
-## Fault dataset
+| Goal | Command |
+| --- | --- |
+| Development server | `npm run dev` |
+| Type checking | `npm run typecheck` |
+| Lint | `npm run lint` |
+| Unit/integration tests | `npm test` |
+| Watch tests | `npm run test:watch` |
+| Production build | `npm run build` |
+| Full quality gate | `npm run check` |
+| AFAD seven-day sync | `npm run sync:afad:local -- --minutes=10080` |
+| Local scheduled sync | `npm run sync:afad:scheduled:local` |
+| Rebuild fault tiles | `npm run data:build:faults` |
 
-The checked-in browser assets under `public/data/faults/` are a Türkiye-region
-derivative of GEM Global Active Faults, licensed CC BY-SA 4.0.
+## Configuration
 
-- Source: https://github.com/GEMScienceTools/gem-global-active-faults
-- Source file: `geojson/gem_active_faults.geojson`
-- Source revision: `56816508ad92fd6846dad1163b1c8c01376a2cd1`
-- Source SHA-256: `603513086b4693de6008e3444959995c34683b30dac291856340522a76d8505e`
-- Processed: 2026-09-06
-- Attribution: © GEM Foundation contributors
-
-The source was clipped to `22°E–47°E, 33°N–44°N`, coordinate precision was
-reduced to five decimal places, unused attributes were removed, and the result
-was tiled as PMTiles. No geological interpretation or fault-to-earthquake
-association was added. This regional context is not suitable for site-specific
-engineering or hazard decisions.
-
-To reproduce the derivative, download the pinned upstream GeoJSON to
-`data/raw/gem_active_faults.geojson`, install Tippecanoe, then run:
+The default basemap works without an API key. Create `.env.local` only when you
+need to override local settings:
 
 ```bash
-npm run data:build:faults
+cp .env.example .env.local
 ```
+
+| Variable | Required locally | Purpose |
+| --- | :---: | --- |
+| `NEXT_PUBLIC_BASEMAP_STYLE_URL` | No | Overrides the MapLibre style URL. |
+| `AFAD_SYNC_TOKEN` | No | Protects manual synchronization outside localhost. |
+
+Production additionally requires a real D1 database identifier, the `DB`
+binding, the `MANUAL_SYNC_RATE_LIMIT` binding, `AFAD_SYNC_TOKEN`, and the
+five-minute Cron Trigger declared in `wrangler.jsonc`. Production identifiers
+and secrets are intentionally not committed.
 
 ## Architecture
 
-- React 19 on Vinext/Vite
-- Cloudflare Workers runtime
-- Hono API router
-- Cloudflare D1 with Drizzle migrations
-- MapLibre GL JS
-- Zod contracts shared across browser and Worker code
-- Vitest, Oxlint, TypeScript, and GitHub Actions
+| Layer | Technology | Responsibility |
+| --- | --- | --- |
+| Interface | React 19, Vinext, Tailwind CSS | Map-first desktop and mobile workspace |
+| Mapping | MapLibre GL JS, PMTiles | Terrain, earthquake markers, and fault vectors |
+| Analysis | Web Worker, Recharts | Catalog metrics and sequence exploration |
+| Runtime | Cloudflare Workers, Hono | App delivery, protected routes, scheduled ingestion |
+| Storage | Cloudflare D1, Drizzle schema | Events, revisions, health, leases, and run diagnostics |
+| Contracts | Zod, TypeScript | Shared runtime validation and types |
+| Quality | Vitest, Oxlint, GitHub Actions | Automated regression and production-build checks |
+
+Key directories:
+
+```text
+app/                 Pages and application API routes
+components/          Atlas, map, and UI components
+hooks/               Browser data and analysis state
+worker/              Ingestion, catalog queries, retention, and observability
+db/                  D1 schema and environment types
+migrations/          Ordered D1 migrations
+public/data/faults/   Browser-ready GEM fault derivative
+tests/                Unit and SQLite-backed integration coverage
+```
+
+## Troubleshooting
+
+### `Local D1 state was not found`
+
+Run the migrations before synchronization:
+
+```bash
+npm run db:migrate:local
+```
+
+### `AFAD_NETWORK_ERROR`
+
+Confirm that `https://deprem.afad.gov.tr` is reachable and retry the sync. The
+adapter already performs bounded retries; persistent DNS, TLS, or upstream
+errors are reported without advancing the source cursor.
+
+### The UI says the scheduler is missing
+
+For local development, stop `npm run dev` and run:
+
+```bash
+npm run sync:afad:scheduled:local
+```
+
+### The map has fewer events than the total catalog
+
+The visible result respects the current time, magnitude, depth, map bounds, and
+timeline selection. Use **Reset** and choose **7 days** to return to the full
+recent view.
+
+## Data sources and attribution
+
+### Earthquakes
+
+- Source: [T.C. İçişleri Bakanlığı AFAD – TDVMS](https://deprem.afad.gov.tr/event-service)
+- Product policy: rolling seven-day window, source attribution, no bulk export
+- Parameters are source-reported estimates and may be revised
+
+### Active faults
+
+The checked-in browser assets under `public/data/faults/` are a Türkiye-region
+derivative of the
+[GEM Global Active Faults Database](https://github.com/GEMScienceTools/gem-global-active-faults),
+licensed under CC BY-SA 4.0.
+
+- Source revision: `56816508ad92fd6846dad1163b1c8c01376a2cd1`
+- Source SHA-256: `603513086b4693de6008e3444959995c34683b30dac291856340522a76d8505e`
+- Attribution: © GEM Foundation contributors
+- Processing: clipped to `22°E–47°E, 33°N–44°N`, reduced to five-decimal
+  coordinate precision, unused attributes removed, tiled as PMTiles
+
+A nearby mapped segment does not establish which fault caused an earthquake.
+The layer is regional context and is not suitable for site-specific engineering
+or hazard decisions.
+
+### Map and terrain
+
+The interface preserves the required in-map attribution for OpenFreeMap,
+OpenMapTiles, OpenStreetMap, Mapterhorn, and GEM data.
+
+## Production readiness
+
+Before a public deployment:
+
+- Configure the production D1 binding and apply every migration.
+- Store `AFAD_SYNC_TOKEN` as a secret; never commit it.
+- Verify one authenticated remote sync before enabling cron.
+- Confirm `/api/v1/source-health` reports a recent successful scheduled run.
+- Check AFAD attribution, the independent-product disclaimer, and map-provider
+  attribution in the deployed UI.
+- Run `npm run check` from a clean checkout.
+
+Current status: **v0.8 alpha · local production candidate · not yet publicly
+deployed**.

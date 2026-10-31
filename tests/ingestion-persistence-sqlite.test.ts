@@ -3,7 +3,9 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { NormalizedSourceEvent } from '@/shared/schemas';
 import { runAfadSync } from '@/worker/ingestion/afad';
+import { runEmscSync } from '@/worker/ingestion/emsc';
 import { persistEventsInBatches } from '@/worker/ingestion/persistence';
+import { runUsgsSync } from '@/worker/ingestion/usgs';
 
 type BoundStatement = {
   sql: string;
@@ -23,6 +25,7 @@ function sqliteD1() {
     '0004_free_saracen.sql',
     '0005_round_firestar.sql',
     '0006_optimal_umar.sql',
+    '0007_multi_source_catalog.sql',
   ]) {
     sqlite.exec(
       readFileSync(
@@ -258,5 +261,75 @@ describe('D1 ingestion SQL', () => {
         .prepare('SELECT COUNT(*) AS count FROM ingestion_leases')
         .get(),
     ).toEqual({ count: 0 });
+  });
+
+  it('keeps independent source observations under one canonical event', async () => {
+    const database = sqliteD1();
+    activeDatabase = database.sqlite;
+    const runStartedAt = Date.parse('2026-10-01T12:40:00.000Z');
+    const usgsEvent: NormalizedSourceEvent = {
+      source: 'USGS',
+      sourceEventId: 'us-test',
+      originTime: '2026-10-01T12:30:00.000Z',
+      latitude: 38.7,
+      longitude: 35.25,
+      depthKm: 8.4,
+      magnitude: 3.2,
+      magnitudeType: 'ml',
+      placeRaw: 'Central Turkey',
+      sourceStatus: 'reviewed',
+      sourceUpdatedAt: '2026-10-01T12:35:00.000Z',
+    };
+    const emscEvent: NormalizedSourceEvent = {
+      ...usgsEvent,
+      source: 'EMSC',
+      sourceEventId: 'emsc-test',
+      originTime: '2026-10-01T12:30:30.000Z',
+      latitude: 38.71,
+      longitude: 35.26,
+      magnitude: 3.1,
+      magnitudeType: 'ML',
+    };
+    const resultFor = (event: NormalizedSourceEvent) => async () => ({
+      events: [event],
+      rejections: [],
+      attempts: 1,
+      splits: 0,
+      received: 1,
+      rejected: 0,
+      duplicatesDropped: 0,
+    });
+
+    await runUsgsSync(database.db, {
+      now: new Date(runStartedAt),
+      clock: () => runStartedAt + 1_000,
+      fetchWindow: resultFor(usgsEvent),
+    });
+    await runEmscSync(database.db, {
+      now: new Date(runStartedAt),
+      clock: () => runStartedAt + 2_000,
+      fetchWindow: resultFor(emscEvent),
+    });
+
+    expect(
+      database.sqlite
+        .prepare('SELECT COUNT(*) AS count FROM canonical_events')
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.sqlite
+        .prepare('SELECT COUNT(*) AS count FROM canonical_event_members')
+        .get(),
+    ).toEqual({ count: 2 });
+    expect(
+      database.sqlite
+        .prepare('SELECT preferred_source_event_pk FROM canonical_events')
+        .get(),
+    ).toEqual({ preferred_source_event_pk: 'EMSC:emsc-test' });
+    expect(
+      database.sqlite
+        .prepare('SELECT COUNT(DISTINCT source) AS count FROM ingestion_state')
+        .get(),
+    ).toEqual({ count: 2 });
   });
 });

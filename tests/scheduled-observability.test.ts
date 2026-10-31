@@ -5,6 +5,10 @@ function parseLog(call: unknown[] | undefined) {
   return JSON.parse(String(call?.[0]));
 }
 
+function findLog(calls: unknown[][], event: string) {
+  return calls.map((call) => parseLog(call)).find((log) => log.event === event);
+}
+
 describe('scheduled AFAD observability', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -18,6 +22,10 @@ describe('scheduled AFAD observability', () => {
       status: 'skipped',
       reason: 'sync_in_progress',
     });
+    const runRetention = vi.fn().mockResolvedValue({
+      cutoff: '2026-09-12T13:07:00.000Z',
+      eventsDeleted: 0,
+    });
     const clock = vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_075);
 
     await expect(
@@ -26,11 +34,16 @@ describe('scheduled AFAD observability', () => {
         correlationId: 'correlation-id',
         clock,
         runSync,
+        runRetention,
       }),
     ).resolves.toMatchObject({ status: 'skipped' });
 
     expect(runSync).toHaveBeenCalledWith({}, { trigger: 'scheduled' });
-    expect(parseLog(consoleInfo.mock.calls[0])).toMatchObject({
+    expect(runRetention).toHaveBeenCalledWith(
+      {},
+      Date.UTC(2026, 8, 19, 13, 7),
+    );
+    expect(findLog(consoleInfo.mock.calls, 'cron.afad_sync.started')).toMatchObject({
       event: 'cron.afad_sync.started',
       correlationId: 'correlation-id',
       scheduledTime: '2026-09-19T13:07:00.000Z',
@@ -54,6 +67,10 @@ describe('scheduled AFAD observability', () => {
       code: 'AFAD_UNAVAILABLE',
     });
     const runSync = vi.fn().mockRejectedValue(failure);
+    const runRetention = vi.fn().mockResolvedValue({
+      cutoff: '2026-09-12T13:07:00.000Z',
+      eventsDeleted: 0,
+    });
     const clock = vi.fn().mockReturnValueOnce(2_000).mockReturnValueOnce(2_125);
 
     await expect(
@@ -62,6 +79,7 @@ describe('scheduled AFAD observability', () => {
         correlationId: 'correlation-id',
         clock,
         runSync,
+        runRetention,
       }),
     ).rejects.toBe(failure);
 

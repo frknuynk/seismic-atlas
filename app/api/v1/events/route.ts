@@ -2,8 +2,16 @@ import { getD1 } from '@/db';
 import { EventQuerySchema, EventsResponseSchema } from '@/shared/schemas';
 import { InvalidCatalogCursorError, queryEvents } from '@/worker/catalog';
 import { apiErrorResponse, logApiError } from '@/worker/observability';
+import {
+  appDataRequestRejectedResponse,
+  isSameOriginAppDataRequest,
+} from '@/worker/security';
 
 export async function GET(request: Request) {
+  if (!isSameOriginAppDataRequest(request)) {
+    return appDataRequestRejectedResponse(request);
+  }
+
   const url = new URL(request.url);
   const parsed = EventQuerySchema.safeParse(
     Object.fromEntries(url.searchParams.entries()),
@@ -24,7 +32,8 @@ export async function GET(request: Request) {
     );
     return Response.json(response, {
       headers: {
-        'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
+        'Cache-Control': 'private, max-age=30, stale-while-revalidate=120',
+        Vary: 'Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest',
       },
     });
   } catch (error) {

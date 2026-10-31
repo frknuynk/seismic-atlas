@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  appDataRequestRejectedResponse,
   isManualSyncRateLimited,
+  isSameOriginAppDataRequest,
   manualSyncRateLimitedResponse,
   withSecurityHeaders,
 } from '@/worker/security';
@@ -41,6 +43,28 @@ describe('security perimeter', () => {
     );
 
     expect(response.headers.has('Strict-Transport-Security')).toBe(false);
+  });
+
+  it('accepts only first-party browser data fetches', async () => {
+    const firstParty = new Request('https://atlas.example.com/api/v1/events', {
+      headers: {
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Dest': 'empty',
+      },
+    });
+    const crossSite = new Request('https://atlas.example.com/api/v1/events', {
+      headers: {
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Dest': 'empty',
+      },
+    });
+
+    expect(isSameOriginAppDataRequest(firstParty)).toBe(true);
+    expect(isSameOriginAppDataRequest(crossSite)).toBe(false);
+    expect(isSameOriginAppDataRequest(new Request(firstParty.url))).toBe(false);
+    expect(appDataRequestRejectedResponse(crossSite).status).toBe(403);
   });
 
   it('uses a route-level limiter key and reports a rejected request', async () => {

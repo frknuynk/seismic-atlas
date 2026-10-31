@@ -25,6 +25,17 @@ function valueOrDash(value: number | null, suffix = '') {
   return value === null ? 'Not reported' : `${value.toFixed(2)}${suffix}`;
 }
 
+function sourceEventUrl(event: CatalogEvent) {
+  if (event.source === 'AFAD') {
+    return `https://deprem.afad.gov.tr/event-detail/${encodeURIComponent(event.sourceEventId)}`;
+  }
+  if (event.source === 'USGS') {
+    return `https://earthquake.usgs.gov/earthquakes/eventpage/${encodeURIComponent(event.sourceEventId)}`;
+  }
+
+  return null;
+}
+
 type EventDetailSheetProps = {
   eventId: string | null;
   summary: CatalogEvent | null;
@@ -55,7 +66,7 @@ export function EventDetailSheet({
         <SheetHeader className="border-b pr-12">
           <div className="mb-2 flex items-center gap-2">
             <Badge className="border-cyan-300/25 bg-cyan-300/10 text-cyan-200">
-              Official Türkiye · AFAD
+              Primary catalog · {event?.source ?? 'AFAD'}
             </Badge>
             {detail?.sourceStatus && (
               <Badge variant="outline">{detail.sourceStatus}</Badge>
@@ -176,15 +187,21 @@ export function EventDetailSheet({
               <div className="rounded-lg border bg-card/55 p-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-muted-foreground">Source event</span>
-                  <a
-                    href={`https://deprem.afad.gov.tr/event-detail/${event.sourceEventId}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
-                  >
-                    {event.sourceEventId}
-                    <ExternalLink className="size-3" aria-hidden="true" />
-                  </a>
+                  {sourceEventUrl(event) ? (
+                    <a
+                      href={sourceEventUrl(event) ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
+                    >
+                      {event.source} {event.sourceEventId}
+                      <ExternalLink className="size-3" aria-hidden="true" />
+                    </a>
+                  ) : (
+                    <span className="font-mono">
+                      {event.source} {event.sourceEventId}
+                    </span>
+                  )}
                 </div>
                 {detail && (
                   <>

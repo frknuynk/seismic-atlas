@@ -54,14 +54,34 @@ export function withSecurityHeaders(request: Request, response: Response) {
   });
 }
 
+export function isSameOriginAppDataRequest(request: Request) {
+  return (
+    request.headers.get('Sec-Fetch-Site') === 'same-origin' &&
+    request.headers.get('Sec-Fetch-Dest') === 'empty' &&
+    ['cors', 'same-origin'].includes(
+      request.headers.get('Sec-Fetch-Mode') ?? '',
+    )
+  );
+}
+
+export function appDataRequestRejectedResponse(request: Request) {
+  return apiErrorResponse(request, {
+    code: 'APP_DATA_REQUEST_REQUIRED',
+    message: 'This endpoint is reserved for the first-party application.',
+    status: 403,
+    headers: { 'Cache-Control': 'no-store' },
+  });
+}
+
 export async function isManualSyncRateLimited(
   rateLimiter: RateLimit | undefined,
   requestId?: string,
+  source = 'afad',
 ) {
   if (!rateLimiter) return false;
 
   try {
-    const outcome = await rateLimiter.limit({ key: 'afad-manual-sync' });
+    const outcome = await rateLimiter.limit({ key: `${source}-manual-sync` });
     return !outcome.success;
   } catch (error) {
     // The D1 lease and bearer token still protect the operation. A temporary

@@ -5,19 +5,19 @@ const FULL_RECONCILE_MS = 7 * 24 * 60 * 60_000;
 const RECONCILE_INTERVAL_MS = 24 * 60 * 60_000;
 export const MAX_BACKFILL_WINDOW_MS = 24 * 60 * 60_000;
 
-export type AfadWindowKind =
+export type SourceWindowKind =
   | 'manual'
   | 'bootstrap'
   | 'incremental'
   | 'reconcile'
   | 'backfill';
 
-export type AfadIngestionCursor = {
+export type SourceIngestionCursor = {
   lastSuccessWindowEnd: number | null;
   lastFullReconcileAt: number | null;
 } | null;
 
-export function planAfadBackfillWindow({
+export function planSourceBackfillWindow({
   start,
   end,
   now,
@@ -48,7 +48,7 @@ export function planAfadBackfillWindow({
   };
 }
 
-export function planAfadSyncWindow({
+export function planSourceSyncWindow({
   now,
   trigger,
   cursor,
@@ -56,7 +56,7 @@ export function planAfadSyncWindow({
 }: {
   now: Date;
   trigger: 'manual' | 'scheduled';
-  cursor: AfadIngestionCursor;
+  cursor: SourceIngestionCursor;
   requestedWindowMinutes?: number;
 }) {
   const endMs = now.valueOf();
@@ -110,3 +110,10 @@ export function planAfadSyncWindow({
     fullReconcile: false,
   };
 }
+
+// Backwards-compatible aliases keep the dormant AFAD adapter and its tests
+// usable while production ingestion is source-agnostic.
+export const planAfadBackfillWindow = planSourceBackfillWindow;
+export const planAfadSyncWindow = planSourceSyncWindow;
+export type AfadWindowKind = SourceWindowKind;
+export type AfadIngestionCursor = SourceIngestionCursor;

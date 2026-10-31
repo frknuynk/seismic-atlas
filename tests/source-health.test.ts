@@ -65,13 +65,13 @@ describe('source health diagnostics', () => {
     expect(health.AFAD.status).toBe('delayed');
     expect(health.AFAD.freshness.state).toBe('stale');
     expect(health.AFAD.schedule).toMatchObject({
-      cadenceMinutes: 60,
-      delayedAfterMinutes: 75,
-      staleAfterMinutes: 180,
+      cadenceMinutes: 5,
+      delayedAfterMinutes: 15,
+      staleAfterMinutes: 60,
     });
     expect(health.AFAD.scheduler).toMatchObject({
       state: 'overdue',
-      overdueAfterMinutes: 120,
+      overdueAfterMinutes: 15,
       lastScheduledStatus: 'succeeded',
     });
     expect(health.AFAD.requestControl).toMatchObject({

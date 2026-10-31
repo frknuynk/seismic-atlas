@@ -1,6 +1,5 @@
 import type { NormalizedSourceEvent } from '@/shared/schemas';
 
-const SOURCE = 'AFAD';
 const MAX_EVENTS_PER_BATCH = 1_000;
 
 type ExistingEventRow = {
@@ -67,6 +66,7 @@ async function payloadHash(event: NormalizedSourceEvent) {
 async function loadExistingEvents(
   db: D1Database,
   events: NormalizedSourceEvent[],
+  source: NormalizedSourceEvent['source'],
 ) {
   const sourceEventIds = events.map((event) => event.sourceEventId);
   const result = await db
@@ -78,7 +78,7 @@ async function loadExistingEvents(
           SELECT CAST(value AS TEXT) FROM json_each(?)
         )`,
     )
-    .bind(SOURCE, JSON.stringify(sourceEventIds))
+    .bind(source, JSON.stringify(sourceEventIds))
     .all<ExistingEventRow>();
 
   return new Map(
@@ -90,6 +90,7 @@ async function prepareRows(
   events: NormalizedSourceEvent[],
   existingEvents: Map<string, ExistingEventRow>,
   observedAt: number,
+  source: NormalizedSourceEvent['source'],
 ) {
   return Promise.all(
     events.map(async (event): Promise<PersistenceRow> => {
@@ -102,7 +103,7 @@ async function prepareRows(
           : 'updated';
 
       return {
-        id: existing?.id ?? `${SOURCE}:${event.sourceEventId}`,
+        id: existing?.id ?? `${source}:${event.sourceEventId}`,
         sourceEventId: event.sourceEventId,
         originTime: Date.parse(event.originTime),
         latitude: event.latitude,
@@ -128,7 +129,11 @@ function databaseRows(rows: PersistenceRow[]) {
   return rows.map(({ persistence: _, ...row }) => row);
 }
 
-function upsertEventsStatement(db: D1Database, rows: PersistenceRow[]) {
+function upsertEventsStatement(
+  db: D1Database,
+  rows: PersistenceRow[],
+  source: NormalizedSourceEvent['source'],
+) {
   return db
     .prepare(
       `INSERT INTO source_events (
@@ -167,10 +172,14 @@ function upsertEventsStatement(db: D1Database, rows: PersistenceRow[]) {
         last_seen_at = excluded.last_seen_at,
         payload_hash = excluded.payload_hash`,
     )
-    .bind(SOURCE, JSON.stringify(databaseRows(rows)));
+    .bind(source, JSON.stringify(databaseRows(rows)));
 }
 
-function insertRevisionsStatement(db: D1Database, rows: PersistenceRow[]) {
+function insertRevisionsStatement(
+  db: D1Database,
+  rows: PersistenceRow[],
+  source: NormalizedSourceEvent['source'],
+) {
   return db
     .prepare(
       `INSERT OR IGNORE INTO source_event_revisions (
@@ -204,7 +213,7 @@ function insertRevisionsStatement(db: D1Database, rows: PersistenceRow[]) {
           '$.sourceEventId'
         )`,
     )
-    .bind(JSON.stringify(databaseRows(rows)), SOURCE);
+    .bind(JSON.stringify(databaseRows(rows)), source);
 }
 
 export async function persistEventsInBatches(
@@ -217,8 +226,13 @@ export async function persistEventsInBatches(
     return { inserted: 0, updated: 0, unchanged: 0, batches: 0 };
   }
 
-  const existingEvents = await loadExistingEvents(db, events);
-  const rows = await prepareRows(events, existingEvents, observedAt);
+  const source = events[0].source;
+  if (events.some((event) => event.source !== source)) {
+    throw new Error('A persistence batch may contain only one source.');
+  }
+
+  const existingEvents = await loadExistingEvents(db, events, source);
+  const rows = await prepareRows(events, existingEvents, observedAt, source);
   const counts = rows.reduce<PersistenceCounts>(
     (totals, row) => {
       totals[row.persistence] += 1;
@@ -237,9 +251,9 @@ export async function persistEventsInBatches(
     const revisionRows = batchRows.filter(
       (row) => row.persistence !== 'unchanged',
     );
-    const statements = [upsertEventsStatement(db, batchRows)];
+    const statements = [upsertEventsStatement(db, batchRows, source)];
     if (revisionRows.length > 0) {
-      statements.push(insertRevisionsStatement(db, revisionRows));
+      statements.push(insertRevisionsStatement(db, revisionRows, source));
     }
     await db.batch(statements);
     counts.batches += 1;

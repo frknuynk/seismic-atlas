@@ -98,6 +98,28 @@ describe('EventQuerySchema', () => {
     ).toBe(false);
   });
 
+  it('accepts only AFAD queries covering at most seven days', () => {
+    expect(
+      EventQuerySchema.parse({
+        start: '2026-10-24T12:00:00.000Z',
+        end: '2026-10-31T12:00:00.000Z',
+      }).source,
+    ).toBe('AFAD');
+    expect(
+      EventQuerySchema.safeParse({
+        start: '2026-10-23T11:59:59.999Z',
+        end: '2026-10-31T12:00:00.000Z',
+      }).success,
+    ).toBe(false);
+    expect(
+      EventQuerySchema.safeParse({
+        start: '2026-10-30T12:00:00.000Z',
+        end: '2026-10-31T12:00:00.000Z',
+        source: 'USGS',
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects inverted map and scientific filter ranges', () => {
     const result = EventQuerySchema.safeParse({
       start: '2026-09-05T00:00:00.000Z',

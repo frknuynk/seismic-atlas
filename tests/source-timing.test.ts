@@ -7,27 +7,27 @@ import {
 const NOW = Date.parse('2026-09-19T11:26:00.000Z');
 
 describe('AFAD source timing', () => {
-  it('reports the hourly schedule and next minute-seven run', () => {
-    const timing = afadSourceTiming(NOW - 30 * 60_000, NOW);
+  it('reports the five-minute schedule and next run', () => {
+    const timing = afadSourceTiming(NOW - 10 * 60_000, NOW);
 
     expect(timing.freshness).toEqual({
       state: 'fresh',
       checkedAt: '2026-09-19T11:26:00.000Z',
-      ageMinutes: 30,
+      ageMinutes: 10,
     });
     expect(timing.schedule).toEqual({
-      cadenceMinutes: 60,
-      delayedAfterMinutes: 75,
-      staleAfterMinutes: 180,
-      nextScheduledAt: '2026-09-19T12:07:00.000Z',
+      cadenceMinutes: 5,
+      delayedAfterMinutes: 15,
+      staleAfterMinutes: 60,
+      nextScheduledAt: '2026-09-19T11:30:00.000Z',
     });
   });
 
   it.each([
-    [75, 'fresh'],
-    [76, 'delayed'],
-    [180, 'delayed'],
-    [181, 'stale'],
+    [15, 'fresh'],
+    [16, 'delayed'],
+    [60, 'delayed'],
+    [61, 'stale'],
   ] as const)('classifies %i minute-old data as %s', (minutes, state) => {
     expect(
       afadSourceTiming(NOW - minutes * 60_000, NOW).freshness.state,
@@ -48,7 +48,7 @@ describe('AFAD scheduler watchdog', () => {
     expect(afadSchedulerHealth(null, NOW)).toEqual({
       state: 'missing',
       checkedAt: '2026-09-19T11:26:00.000Z',
-      overdueAfterMinutes: 120,
+      overdueAfterMinutes: 15,
       lastScheduledAt: null,
       lastScheduledCompletedAt: null,
       lastScheduledStatus: null,
@@ -56,11 +56,11 @@ describe('AFAD scheduler watchdog', () => {
   });
 
   it.each([
-    [119, 'succeeded', 'healthy'],
-    [119, 'failed', 'healthy'],
-    [119, 'running', 'running'],
-    [121, 'succeeded', 'overdue'],
-    [121, 'running', 'overdue'],
+    [14, 'succeeded', 'healthy'],
+    [14, 'failed', 'healthy'],
+    [14, 'running', 'running'],
+    [16, 'succeeded', 'overdue'],
+    [16, 'running', 'overdue'],
   ] as const)(
     'classifies a %i minute-old %s scheduled run as %s',
     (minutes, status, state) => {
@@ -68,7 +68,7 @@ describe('AFAD scheduler watchdog', () => {
         afadSchedulerHealth(
           {
             startedAt: NOW - minutes * 60_000,
-            completedAt: status === 'running' ? null : NOW - 118 * 60_000,
+            completedAt: status === 'running' ? null : NOW - 13 * 60_000,
             status,
           },
           NOW,

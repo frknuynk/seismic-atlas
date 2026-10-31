@@ -95,7 +95,7 @@ export function EventSearch({ events, onSelectEvent }: EventSearchProps) {
           <CommandInput
             value={query}
             onValueChange={setQuery}
-            placeholder="Place, magnitude, or AFAD event ID…"
+            placeholder="Place, magnitude, or source event ID…"
           />
           <CommandList>
             <CommandEmpty>No matching earthquakes in this view.</CommandEmpty>
@@ -119,7 +119,8 @@ export function EventSearch({ events, onSelectEvent }: EventSearchProps) {
                       {event.place ?? 'Unknown location'}
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                      {eventTime(event.originTime)} · AFAD {event.sourceEventId}
+                      {eventTime(event.originTime)} · {event.source}{' '}
+                      {event.sourceEventId}
                     </span>
                   </span>
                 </CommandItem>

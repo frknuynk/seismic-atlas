@@ -1,4 +1,8 @@
-import { EventsResponseSchema, type CatalogEvent } from '@/shared/schemas';
+import {
+  EventsResponseSchema,
+  type CatalogEvent,
+  type CatalogGeneration,
+} from '@/shared/schemas';
 
 export const CATALOG_PAGE_SIZE = 2_500;
 export const MAX_BROWSER_CATALOG_EVENTS = 25_000;
@@ -17,14 +21,6 @@ export type CatalogCompleteness = {
   loaded: number;
   total: number | null;
   reason: CatalogCompletenessReason | null;
-};
-
-type CatalogGeneration = {
-  lastSuccessAt: string | null;
-  lastRun: {
-    id: string;
-    status: 'running' | 'succeeded' | 'failed';
-  } | null;
 };
 
 export function verifyCatalogGeneration(
@@ -47,6 +43,17 @@ export function verifyCatalogGeneration(
   return completeness;
 }
 
+function sameCatalogGeneration(
+  left: CatalogGeneration,
+  right: CatalogGeneration,
+) {
+  return (
+    left.lastSuccessAt === right.lastSuccessAt &&
+    left.lastRun?.id === right.lastRun?.id &&
+    left.lastRun?.status === right.lastRun?.status
+  );
+}
+
 type CatalogPagesOptions = {
   signal?: AbortSignal;
   fetcher?: typeof fetch;
@@ -57,7 +64,11 @@ type CatalogPagesOptions = {
 export async function fetchCatalogPages(
   params: URLSearchParams,
   options: CatalogPagesOptions = {},
-): Promise<{ events: CatalogEvent[]; completeness: CatalogCompleteness }> {
+): Promise<{
+  events: CatalogEvent[];
+  completeness: CatalogCompleteness;
+  generation: CatalogGeneration;
+}> {
   const fetcher = options.fetcher ?? fetch;
   const pageSize = Math.min(
     Math.max(1, Math.trunc(options.pageSize ?? CATALOG_PAGE_SIZE)),
@@ -72,6 +83,7 @@ export async function fetchCatalogPages(
   const seenCursors = new Set<string>();
   let cursor: string | null = null;
   let expectedTotal: number | null = null;
+  let generation: CatalogGeneration | null = null;
 
   while (true) {
     const pageParams = new URLSearchParams(params);
@@ -87,6 +99,19 @@ export async function fetchCatalogPages(
     }
 
     const page = EventsResponseSchema.parse(await response.json());
+    if (generation === null) generation = page.meta.generation;
+    else if (!sameCatalogGeneration(generation, page.meta.generation)) {
+      return {
+        events,
+        generation: page.meta.generation,
+        completeness: {
+          complete: false,
+          loaded: events.length,
+          total: page.meta.total,
+          reason: 'catalog_changed',
+        },
+      };
+    }
     if (
       page.meta.count !== page.events.length ||
       page.meta.returned !== page.events.length ||
@@ -94,6 +119,7 @@ export async function fetchCatalogPages(
     ) {
       return {
         events,
+        generation,
         completeness: {
           complete: false,
           loaded: events.length,
@@ -106,6 +132,7 @@ export async function fetchCatalogPages(
     else if (page.meta.total !== expectedTotal) {
       return {
         events,
+        generation,
         completeness: {
           complete: false,
           loaded: events.length,
@@ -119,6 +146,7 @@ export async function fetchCatalogPages(
       if (eventIds.has(event.id)) {
         return {
           events,
+          generation,
           completeness: {
             complete: false,
             loaded: events.length,
@@ -137,6 +165,7 @@ export async function fetchCatalogPages(
       ) {
         return {
           events,
+          generation,
           completeness: {
             complete: false,
             loaded: events.length,
@@ -151,6 +180,7 @@ export async function fetchCatalogPages(
       const complete = events.length === expectedTotal;
       return {
         events,
+        generation,
         completeness: {
           complete,
           loaded: events.length,
@@ -164,6 +194,7 @@ export async function fetchCatalogPages(
     if (!nextCursor || seenCursors.has(nextCursor)) {
       return {
         events,
+        generation,
         completeness: {
           complete: false,
           loaded: events.length,

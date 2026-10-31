@@ -1,26 +1,29 @@
+import type { SourceCode } from '@/shared/schemas';
 import { runAfadSync } from '@/worker/ingestion/afad';
 import { logEvent, serializeError } from '@/worker/observability';
+import { pruneRecentAfadCatalog } from '@/worker/catalog-retention';
 
 type ScheduledSyncRunner = (
   db: D1Database,
   options: { trigger: 'scheduled' },
-) => ReturnType<typeof runAfadSync>;
+) => Promise<{ runId: string; status: string; reason?: string }>;
 
-export async function runObservedScheduledAfadSync(
+export async function runObservedScheduledSourceSync(
   db: D1Database,
+  source: SourceCode,
+  runSync: ScheduledSyncRunner,
   options: {
     scheduledTime: number;
     correlationId?: string;
     clock?: () => number;
-    runSync?: ScheduledSyncRunner;
   },
 ) {
   const correlationId = options.correlationId ?? crypto.randomUUID();
   const clock = options.clock ?? Date.now;
-  const runSync = options.runSync ?? runAfadSync;
   const startedAt = clock();
+  const eventPrefix = `cron.${source.toLowerCase()}_sync`;
 
-  logEvent('info', 'cron.afad_sync.started', {
+  logEvent('info', `${eventPrefix}.started`, {
     correlationId,
     scheduledTime: new Date(options.scheduledTime).toISOString(),
   });
@@ -29,7 +32,7 @@ export async function runObservedScheduledAfadSync(
     const result = await runSync(db, { trigger: 'scheduled' });
     logEvent(
       result.status === 'succeeded' ? 'info' : 'warn',
-      'cron.afad_sync.completed',
+      `${eventPrefix}.completed`,
       {
         correlationId,
         runId: result.runId,
@@ -40,11 +43,33 @@ export async function runObservedScheduledAfadSync(
     );
     return result;
   } catch (error) {
-    logEvent('error', 'cron.afad_sync.failed', {
+    logEvent('error', `${eventPrefix}.failed`, {
       correlationId,
       durationMs: Math.max(0, clock() - startedAt),
       error: serializeError(error),
     });
     throw error;
   }
+}
+
+export function runObservedScheduledAfadSync(
+  db: D1Database,
+  options: {
+    scheduledTime: number;
+    correlationId?: string;
+    clock?: () => number;
+    runSync?: ScheduledSyncRunner;
+    runRetention?: typeof pruneRecentAfadCatalog;
+  },
+) {
+  const runRetention = options.runRetention ?? pruneRecentAfadCatalog;
+  return runRetention(db, options.scheduledTime).then((retention) => {
+    logEvent('info', 'catalog.retention.completed', retention);
+    return runObservedScheduledSourceSync(
+      db,
+      'AFAD',
+      options.runSync ?? runAfadSync,
+      options,
+    );
+  });
 }
